@@ -1,0 +1,13 @@
+[package]
+name = "zk-shielded-pool-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8"
+dotenvy = "0.15.7"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2.0.21"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5.3"

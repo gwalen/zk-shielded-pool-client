@@ -1,5 +1,6 @@
 use axum::{Json, extract::rejection::JsonRejection, http::StatusCode, response::{IntoResponse, Response}};
 use serde::Serialize;
+use tracing::{error, warn};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -28,19 +29,19 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, public_error_msg) = match self {
             AppError::BadRequest(msg) => {
-                println!("Bad request: {:?}", msg); // TODO: use logger
+                warn!("Bad request: {msg:?}");
                 (StatusCode::BAD_REQUEST, msg)
             },
             AppError::RpcError(rpc_error) => {
-                println!("Rpc error: {:?}", rpc_error); // TODO: use logger
+                error!("Rpc error: {rpc_error:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "rpc error".into())
             },
             AppError::Internal(error) => {
-                println!("Internal error: {:?}", error); // TODO: use logger
+                error!("Internal error: {error:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".into())
             },
             AppError::JsonError(json_rejection) => {
-                println!("Json error: {:?}", json_rejection.body_text());
+                warn!("Json error: {:?}", json_rejection.body_text());
                 (json_rejection.status(), json_rejection.body_text())
             }
         };

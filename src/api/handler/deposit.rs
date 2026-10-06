@@ -3,13 +3,13 @@ use crate::{
     app_error::AppError,
 };
 use axum::{Json, extract::rejection::JsonRejection, http::StatusCode};
+use tracing::info;
 
 pub async fn handler(
-    // Json(input): Json<DepositInput>,
     payload: Result<Json<DepositInput>, JsonRejection>
 ) -> Result<(StatusCode, Json<DepositOutput>), AppError> {
     let Json(input) = payload?;
-    println!("Deposit input: {:#?}", input);
+    info!("Deposit input: {input:#?}");
 
     if input.deposit_wallet_address.is_empty() {
         return Err(AppError::BadRequest(

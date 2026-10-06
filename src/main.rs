@@ -15,7 +15,7 @@ use state::*;
 use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
-    trace::{DefaultOnResponse, TraceLayer},
+    trace::TraceLayer,
 };
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -59,22 +59,14 @@ async fn main() {
             // NOTE: order of layers matters ! SetRequestIdLayer must be first, PropagateRequestIdLayer must be last.
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-                .layer(TraceLayer::new_for_http()
-                    .make_span_with(|req: &Request| {
-                        // create request-id based on extensions
-                        let request_id = req
-                            .extensions()
-                            .get::<RequestId>()          // set by SetRequestIdLayer, creates struct RequestId(HeaderValue)
-                            .and_then(|request_id| request_id.header_value().to_str().ok()) // take Option(request_id) and convert to Option(String) ; and_than() is flattmap
-                            .unwrap_or("-empty request id- "); // if Option is None, return "-empty request id-"
-                        // build custom span with request-id
-                        tracing::info_span!("request", request_id = request_id, method = %req.method(), path = %req.uri().path(), version = ?req.version())
-                    })
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(create_request_span),
                     // -> This you add only if you want tracing to be reduced to 1 line instead of 3 lines per request
                     // .on_request(())
                     // .on_response(DefaultOnResponse::new().level(tracing::Level::INFO))
                     // .on_eos(())
-             )
+                )
                 .layer(PropagateRequestIdLayer::x_request_id()),
         )
         .with_state(app_state);
@@ -88,4 +80,21 @@ async fn main() {
     // info!("Listening on http://{listener.local_addr().unwrap():?}", ); // THIS WON'T WORK (read above explanation)
 
     axum::serve(listener, app).await.expect("server error");
+}
+
+fn create_request_span(req: &Request) -> tracing::Span {
+    // create request-id based on extensions
+    let request_id = req
+        .extensions()
+        .get::<RequestId>() // set by SetRequestIdLayer, creates struct RequestId(HeaderValue), value is UUID
+        .and_then(|request_id| request_id.header_value().to_str().ok()) // take Option(request_id) and convert to Option(String) ; and_than() is flatMap
+        .unwrap_or("-empty request id- "); // if Option is None, return "-empty request id-"
+    // build custom span with request-id
+    tracing::info_span!(
+        "request", 
+        request_id = request_id, 
+        method = %req.method(), 
+        path = %req.uri().path(),
+        version = ?req.version()
+    )
 }

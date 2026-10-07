@@ -7,8 +7,8 @@ pub async fn run_scheduler(
     app_state: AppState,
     run_job: impl AsyncFn(&AppState) -> Result<(), AppError>,
 ) -> Result<(), AppError> {
-    // todo!("run_scheduler");
-    let schedule = cron::Schedule::from_str("0 */10 * * * *") // every 10 minutes
+    let schedule = cron::Schedule::from_str("0 */1 * * * *") // every 1 minute
+    // let schedule = cron::Schedule::from_str("*/10 * * * * *") // every 10 seconds
         .map_err(|e| AppError::SchedulerError(e.to_string()))?;
     loop {
         let next_run_time = schedule

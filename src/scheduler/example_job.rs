@@ -1,11 +1,9 @@
-
-use std::time::Duration;
-
 use crate::{app_error::AppError, state::AppState};
 
-pub async fn example_job(_app_state: &AppState) -> Result<(), AppError> {
-    loop {
-        tracing::info!("--> Scheduler job running");
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
+pub async fn job(app_state: &AppState) -> Result<(), AppError> {
+    tracing::info!(
+        "--> Scheduler job running, rpc url {:?}",
+        app_state.config.solana_rpc_url
+    );
+    Ok(())
 }

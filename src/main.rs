@@ -21,6 +21,8 @@ use tower_http::{
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use crate::scheduler::{example_job, run_scheduler};
+
 #[tokio::main]
 async fn main() {
     // .env is optional: in prod the variables come from the real environment (Docker, k8s, ...)
@@ -56,9 +58,9 @@ async fn main() {
 
     // Task A: run the scheduler
     // let app_state_clone = app_state.clone();
-    let scheduler = tokio::spawn(async move {
-        todo!("scheduler");
-    });
+    let scheduler = tokio::spawn(
+        run_scheduler(app_state.clone(), example_job::job)    
+    );
     // Task B: watcher task checking if scheduler was not aborted or panicked
     tokio::spawn(async move {
         if let Err(e) = scheduler.await {

@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 pub mod api;
 pub mod app_error;
 pub mod state;
+pub mod scheduler;
 
 use api::handler::*;
 use axum::extract::Request;
@@ -47,14 +48,30 @@ async fn main() {
         tokio::runtime::Handle::current().metrics().num_workers()
     );
 
-    // TODO: add request id
     // TODO: scheduler for background tasks
+    //  - health check if scheduler is running
+    //  - add info that scheduler is just a very basic solution that does not scale and while server 
+    //    should be stateless so that there can be multiple instances of it, with such scheduler you would have
+    //    duplicated scheduler logic running. On prod you should have a dedicated scheduler service integrated with cloud provider.
+
+    // Task A: run the scheduler
+    // let app_state_clone = app_state.clone();
+    let scheduler = tokio::spawn(async move {
+        todo!("scheduler");
+    });
+    // Task B: watcher task checking if scheduler was not aborted or panicked
+    tokio::spawn(async move {
+        if let Err(e) = scheduler.await {
+            tracing::error!(error = ?e, "Scheduler task failed: {e:?}");
+        }
+    });
+
 
     let app = Router::new()
         .route("/health", get(health_check::handler))
         .route("/deposit", post(deposit::handler))
         // .route("/withdraw", get(withdraw::handler));
-        .route("/boom", get(|| async { StatusCode::INTERNAL_SERVER_ERROR })) // test ERROR response
+        .route("/boom", get(|| async { StatusCode::INTERNAL_SERVER_ERROR })) // test ERROR 500 response
         .layer(
             // NOTE: order of layers matters ! SetRequestIdLayer must be first, PropagateRequestIdLayer must be last.
             ServiceBuilder::new()

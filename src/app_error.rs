@@ -17,6 +17,9 @@ pub enum AppError {
     #[error(transparent)]
     JsonError(#[from] JsonRejection), 
 
+    #[error("Scheduler error: {0}")]
+    SchedulerError(String),
+
 }
 
 // simple struct to always print the same error format to the client
@@ -43,6 +46,10 @@ impl IntoResponse for AppError {
             AppError::JsonError(json_rejection) => {
                 warn!("Json error: {:?}", json_rejection.body_text());
                 (json_rejection.status(), json_rejection.body_text())
+            },
+            AppError::SchedulerError(scheduler_error) => {
+                error!("Scheduler error: {scheduler_error:?}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "scheduler error".into())
             }
         };
         (status, Json(ErrorBody {error: public_error_msg})).into_response()

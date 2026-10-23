@@ -1,13 +1,13 @@
 use crate::{
     api::data::{deposit_input::DepositInput, deposit_output::DepositOutput},
-    app_error::AppError,
+    app_error::{AppError, RequestResult},
 };
 use axum::{Json, extract::rejection::JsonRejection, http::StatusCode};
 use tracing::info;
 
 pub async fn handler(
     payload: Result<Json<DepositInput>, JsonRejection>
-) -> Result<(StatusCode, Json<DepositOutput>), AppError> {
+) -> RequestResult<(StatusCode, Json<DepositOutput>)> {
     let Json(input) = payload?;
     info!("Deposit input: {input:#?}");
 

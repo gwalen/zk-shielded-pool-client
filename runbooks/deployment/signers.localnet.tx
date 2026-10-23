@@ -1,0 +1,11 @@
+// Surfpool airdrops to ~/.config/solana/id.json at startup.
+
+signer "payer" "svm::secret_key" {
+    description = "Pays fees for program deployments and operations"
+    keypair_json = "~/.config/solana/id.json"
+}
+
+signer "authority" "svm::secret_key" {
+    description = "Can upgrade programs and manage critical ops"
+    keypair_json = "~/.config/solana/id.json"
+}

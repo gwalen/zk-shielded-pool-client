@@ -1,0 +1,6 @@
+# The proof-generator dependency (shielded-pool-circuit) pulls in a vendored halo2-base and
+# poseidon-primitives that use `#![feature(...)]`. Those only compile on nightly.
+# RUSTC_BOOTSTRAP=1 lets the stable compiler accept them, so no nightly toolchain is needed
+# and a plain `cargo build` works from a clean checkout.
+[env]
+RUSTC_BOOTSTRAP = "1"

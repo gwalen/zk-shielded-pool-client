@@ -1,0 +1,1222 @@
+{
+  "address": "FCrymxYUTEnXDJXdDn2E71KPxB9sBjXZCh1ezBwmUhvp",
+  "metadata": {
+    "name": "zk_shielded_pool_solana",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "close_proof",
+      "discriminator": [
+        64,
+        76,
+        168,
+        8,
+        126,
+        109,
+        164,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proof_account",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "roots_registry",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "user_commitment_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "total_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "root_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  111,
+                  116,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pause",
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "program_config"
+          ]
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unpause",
+      "discriminator": [
+        169,
+        144,
+        4,
+        38,
+        10,
+        141,
+        188,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "program_config"
+          ]
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_min_deposit",
+      "discriminator": [
+        161,
+        35,
+        64,
+        61,
+        183,
+        214,
+        78,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "program_config"
+          ]
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "min_deposit_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "upload_proof",
+      "docs": [
+        "\n    On a real cluster, 1088 proof bytes will not fit. Rough leftover for this ix (1 signer, 5 keys):\n    - packet budget: 1232\n    - overhead (sig, header, 5 pubkeys, blockhash, compiled ix): ~269\n    - remaining for ix data: ~939\n    - ix data is disc + proof_hash(32) + part(1) + u16 len(2) + proof\n     "
+      ],
+      "discriminator": [
+        57,
+        235,
+        171,
+        213,
+        237,
+        91,
+        79,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "proof_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  111,
+                  102,
+                  95,
+                  115,
+                  116,
+                  111,
+                  114,
+                  97,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sender"
+              },
+              {
+                "kind": "arg",
+                "path": "_proof_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "part",
+          "type": "u8"
+        },
+        {
+          "name": "proof_final_len",
+          "type": "u16"
+        },
+        {
+          "name": "proof",
+          "type": {
+            "vec": "u8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "docs": [
+            "`unsafe(dup)` (implies `mut`): the sender may also be the `recipient`. See `recipient`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "roots_registry",
+          "writable": true
+        },
+        {
+          "name": "proof_account",
+          "docs": [
+            "Created by `upload_proof`. Withdraw only reads it."
+          ]
+        },
+        {
+          "name": "recipient",
+          "docs": [
+            "Receives the payout. Does not have to sign. Its address is checked against",
+            "`public_inputs.dest_address` in the handler, so any other account is rejected.",
+            "",
+            "`unsafe(dup)` (implies `mut`): the recipient may also be the `sender`, so a user can",
+            "withdraw to the wallet that pays the fees. Without it Anchor rejects the same writable",
+            "account twice (error 2040).",
+            "",
+            "Both `sender` and `recipient` need `unsafe(dup)`. When an account repeats, Anchor marks",
+            "both positions, and `unsafe(dup)` only removes its own field from the `mut` mask. So the",
+            "check still fires if the other field of the pair is plain `mut`. That is why the vault",
+            "(plain `mut`) as recipient is still rejected with 2040.",
+            "",
+            "Sharing is harmless here: `Signer` and `UncheckedAccount` hold no typed data, and the",
+            "payout uses `add_lamports`, which reads the live balance."
+          ],
+          "writable": true
+        },
+        {
+          "name": "nullifier_account",
+          "docs": [
+            "Nullifier marker for a withdrawal step. Created once, paid by the sender.",
+            "`init` (not `init_if_needed`) prevents repeating the same withdrawal step.",
+            "Each step represents a withdrawal of a chunk amount to its destination.",
+            "Seeds contain only the fixed prefix and big-endian nullifier bytes: no sender, recipient, proof hash, or root.",
+            "Once a proof for the given withdrawal step is accepted and the transaction succeeds, this nullifier cannot be used again."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "public_inputs",
+          "type": {
+            "defined": {
+              "name": "PublicInputs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Nullifier",
+      "discriminator": [
+        18,
+        56,
+        142,
+        165,
+        181,
+        158,
+        187,
+        133
+      ]
+    },
+    {
+      "name": "ProgramConfig",
+      "discriminator": [
+        196,
+        210,
+        90,
+        231,
+        144,
+        149,
+        140,
+        63
+      ]
+    },
+    {
+      "name": "ProofStorage",
+      "discriminator": [
+        147,
+        193,
+        58,
+        79,
+        147,
+        67,
+        243,
+        221
+      ]
+    },
+    {
+      "name": "RootRegistry",
+      "discriminator": [
+        244,
+        50,
+        121,
+        60,
+        59,
+        161,
+        144,
+        99
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "DepositDone",
+      "discriminator": [
+        171,
+        203,
+        85,
+        8,
+        94,
+        178,
+        41,
+        240
+      ]
+    },
+    {
+      "name": "FullProofUploaded",
+      "discriminator": [
+        251,
+        150,
+        36,
+        73,
+        105,
+        54,
+        194,
+        103
+      ]
+    },
+    {
+      "name": "PartialProofUploaded",
+      "discriminator": [
+        206,
+        52,
+        243,
+        151,
+        224,
+        67,
+        94,
+        104
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "TreeIsFull"
+    },
+    {
+      "code": 6001,
+      "name": "DepositAmountZero"
+    },
+    {
+      "code": 6002,
+      "name": "ProofChunkEmpty"
+    },
+    {
+      "code": 6003,
+      "name": "ProofBufferFull"
+    },
+    {
+      "code": 6004,
+      "name": "FailedToReadProofFromStorage"
+    },
+    {
+      "code": 6005,
+      "name": "EmptyProof"
+    },
+    {
+      "code": 6006,
+      "name": "ProofVerifierFailed"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidProofHash"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidProof"
+    },
+    {
+      "code": 6009,
+      "name": "UnknownRoot"
+    },
+    {
+      "code": 6010,
+      "name": "ChunkAmountTooLarge"
+    },
+    {
+      "code": 6011,
+      "name": "DestinationMismatch"
+    },
+    {
+      "code": 6012,
+      "name": "InsufficientVaultFunds"
+    },
+    {
+      "code": 6013,
+      "name": "RecipientIsVault"
+    },
+    {
+      "code": 6014,
+      "name": "PoseidonInvalidParameters"
+    },
+    {
+      "code": 6015,
+      "name": "PoseidonInvalidEndianness"
+    },
+    {
+      "code": 6016,
+      "name": "PoseidonInvalidNumberOfInputs"
+    },
+    {
+      "code": 6017,
+      "name": "PoseidonEmptyInput"
+    },
+    {
+      "code": 6018,
+      "name": "PoseidonInvalidInputLength"
+    },
+    {
+      "code": 6019,
+      "name": "PoseidonBytesToPrimeFieldElement"
+    },
+    {
+      "code": 6020,
+      "name": "PoseidonInputLargerThanModulus"
+    },
+    {
+      "code": 6021,
+      "name": "PoseidonVecToArray"
+    },
+    {
+      "code": 6022,
+      "name": "PoseidonU64ToU8"
+    },
+    {
+      "code": 6023,
+      "name": "PoseidonBytesToBigInt"
+    },
+    {
+      "code": 6024,
+      "name": "PoseidonInvalidWidthCircom"
+    },
+    {
+      "code": 6025,
+      "name": "PoseidonUnexpected"
+    },
+    {
+      "code": 6026,
+      "name": "Unauthorized"
+    },
+    {
+      "code": 6027,
+      "name": "ProgramPaused"
+    },
+    {
+      "code": 6028,
+      "name": "DepositBelowMinimum"
+    }
+  ],
+  "types": [
+    {
+      "name": "DepositDone",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user_commitment_hash",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_amount",
+            "type": "u64"
+          },
+          {
+            "name": "deposit_commitment_hash",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_root",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FullProofUploaded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sender",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_hash",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_len",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ImtTree",
+      "docs": [
+        "Incremental Merkle Tree state for inserted deposit commitments.",
+        "",
+        "Nested inside `RootRegistry`, so this type must be Pod: fixed-size, no",
+        "padding holes, so the account bytes can be the struct. `repr(C)` plus",
+        "`Pod` / `Zeroable` is that overlay. `#[idl(bytemuck)]` marks it as bytemuck",
+        "in the IDL too; without it the IDL lists it as borsh and `declare_program!`",
+        "clients generate a non-Pod `ImtTree`, which breaks the bytemuck `RootRegistry`.",
+        "",
+        "# Fields",
+        "",
+        "- `root` - current root of the tree (root level == MERKLE_TREE_DEPTH, leaf level == 0)",
+        "",
+        "- `frontiers` - also called filledSubtrees. It stores exactly one hash per level — the hash of the",
+        "  most recently updated left subtree at that level.",
+        "  One value per level (no need to store it for root level)",
+        "",
+        "- `zero_values` - Z_k for each level k (precomputed). Contains MERKLE_TREE_DEPTH values (we do not need it on root level)",
+        "",
+        "- `next_leaf_idx` - Index of the next leaf to be inserted (0.. 2^MERKLE_TREE_DEPTH)",
+        "  First (leaf) level depth == 0 and amount of leafs at this level is 2^MERKLE_TREE_DEPTH",
+        "",
+        "@dev Note:",
+        "frontiers and zero_values store 32-byte scalar field elements in little endian format.",
+        "Normally each would be its own `[u8; 32]`, giving a declaration like:",
+        "  frontiers: [[u8; 32]; MERKLE_TREE_DEPTH] // TODO: is this the issue also in AnchorV2  or only in Quasar?",
+        "The levels are flattened and indexed by hand through [`get_array_element`] / [`set_array_element`]:",
+        "  frontiers: [u8; 32 * MERKLE_TREE_DEPTH] // MERKLE_TREE_DEPTH levels of 32 bytes each"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "frontiers",
+            "type": {
+              "array": [
+                "u8",
+                640
+              ]
+            }
+          },
+          {
+            "name": "zero_values",
+            "type": {
+              "array": [
+                "u8",
+                640
+              ]
+            }
+          },
+          {
+            "name": "next_leaf_idx",
+            "type": {
+              "defined": {
+                "name": "PodU32"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Nullifier",
+      "docs": [
+        "Spent-nullifier marker. One PDA per withdrawn nullifier.",
+        "",
+        "Seeds: `[Nullifier::SEED_PREFIX, nullifier_be]` where `nullifier_be` is the",
+        "big-endian `public_inputs.nullifier` (Poseidon(s, step))."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PartialProofUploaded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sender",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_hash",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_len",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PodBool",
+      "type": {
+        "kind": "type",
+        "alias": "bool"
+      }
+    },
+    {
+      "name": "PodU16",
+      "type": {
+        "kind": "type",
+        "alias": "u16"
+      }
+    },
+    {
+      "name": "PodU32",
+      "type": {
+        "kind": "type",
+        "alias": "u32"
+      }
+    },
+    {
+      "name": "PodU64",
+      "type": {
+        "kind": "type",
+        "alias": "u64"
+      }
+    },
+    {
+      "name": "ProgramConfig",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "pause",
+            "type": {
+              "defined": {
+                "name": "PodBool"
+              }
+            }
+          },
+          {
+            "name": "min_deposit_lamports",
+            "docs": [
+              "Smallest `total_amount` a `deposit` accepts, in lamports."
+            ],
+            "type": {
+              "defined": {
+                "name": "PodU64"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProofStorage",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "proof_final_len",
+            "type": {
+              "defined": {
+                "name": "PodU16"
+              }
+            }
+          },
+          {
+            "name": "proof_current_len",
+            "type": {
+              "defined": {
+                "name": "PodU16"
+              }
+            }
+          },
+          {
+            "name": "proof",
+            "type": {
+              "array": [
+                "u8",
+                1500
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PublicInputs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "step",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "chunk_amount",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "dest_address",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "nullifier",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RootRegistry",
+      "docs": [
+        "This structure stores the roots history as ring buffer and the IMT (Incremental Merkle Tree)",
+        "representation for inserted deposit commitments.",
+        "",
+        "# Fields",
+        "",
+        "- `imt` - the Incremental Merkle Tree itself. See [`ImtTree`] for its own fields.",
+        "",
+        "- `roots_history` - old roots history. Represented as ring buffer.",
+        "",
+        "- `last_root_idx` - index of the last root in the roots_history",
+        "",
+        "@dev Note:",
+        "roots_history stores 32-byte scalar field elements in little endian format. Normally each",
+        "would be its own `[u8; 32]`, giving a declaration like:",
+        "  roots_history: [[u8; 32]; ROOT_RING_BUFFER_LENGTH]",
+        "but zeropod only implements its field traits for byte arrays, so the entries are flattened",
+        "and indexed by hand:",
+        "  roots_history: [u8; 32 * ROOT_RING_BUFFER_LENGTH] // ROOT_RING_BUFFER_LENGTH roots of 32 bytes each"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "imt",
+            "type": {
+              "defined": {
+                "name": "ImtTree"
+              }
+            }
+          },
+          {
+            "name": "roots_history",
+            "type": {
+              "array": [
+                "u8",
+                3200
+              ]
+            }
+          },
+          {
+            "name": "last_root_idx",
+            "type": {
+              "defined": {
+                "name": "PodU32"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

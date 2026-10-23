@@ -1,0 +1,12 @@
+// For mainnet deployment, use web wallets, hardware wallets or multisig to improve key security.
+// Not used by tests: kept so the same runbook can deploy for real later.
+
+signer "payer" "svm::web_wallet" {
+    description = "Pays fees for program deployments and operations"
+    // expected_address = "..."
+}
+
+signer "authority" "svm::web_wallet" {
+    description = "Can upgrade programs and manage critical ops"
+    // See documentation for other options (squads, etc): https://docs.surfpool.run/iac/svm/signers
+}

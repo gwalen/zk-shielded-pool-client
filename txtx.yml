@@ -1,0 +1,15 @@
+---
+name: zk-shielded-pool-client
+id: zk-shielded-pool-client
+runbooks:
+  - name: deployment
+    description: Deploy zk_shielded_pool_solana from the sibling program repo
+    location: runbooks/deployment
+environments:
+  localnet:
+      network_id: localnet
+      rpc_api_url: http://127.0.0.1:8899
+  # Kept for a real deploy later. Not used by tests.
+  mainnet:
+      network_id: mainnet
+      rpc_api_url: https://api.mainnet-beta.solana.com

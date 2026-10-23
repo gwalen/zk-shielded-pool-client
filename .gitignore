@@ -1,6 +1,14 @@
+.DS_Store
+
 target/
 .env
 
 .claude/
 
 docs-prv/
+# Deposit notes hold the secret `s` (mode 0600). Never commit them.
+data/
+# KZG params (8 MB), fetched by scripts/fetch-srs.sh
+resources/*.srs
+# Surfpool runtime logs
+.surfpool/

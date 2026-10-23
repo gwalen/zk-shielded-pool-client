@@ -1,0 +1,23 @@
+################################################################
+# Deploy zk_shielded_pool_solana with normal deploy transactions
+# (no instant_surfnet_deployment cheatcode), the same way a mainnet deploy works.
+################################################################
+
+addon "svm" {
+    rpc_api_url = input.rpc_api_url
+    network_id  = input.network_id
+}
+
+action "deploy_zk_shielded_pool" "svm::deploy_program" {
+    description = "Deploy zk_shielded_pool_solana"
+    // The client repo is not an Anchor workspace, so every path is explicit:
+    // (name, keypair_path, idl_path, bin_path). Paths point at the sibling program repo.
+    // The program keypair gives the fixed id FCrymxYUTEnXDJXdDn2E71KPxB9sBjXZCh1ezBwmUhvp.
+    program = svm::get_program_from_anchor_project(
+        "zk_shielded_pool_solana",
+        "../pool-anchor-v2-rewrite/target/deploy/zk_shielded_pool_solana-keypair.json",
+        "../pool-anchor-v2-rewrite/target/idl/zk_shielded_pool_solana.json",
+        "../pool-anchor-v2-rewrite/target/deploy/zk_shielded_pool_solana.so")
+    authority = signer.authority
+    payer     = signer.payer
+}

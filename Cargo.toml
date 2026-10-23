@@ -6,13 +6,76 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8"
-chrono = "0.4.45"
+chrono = { version = "0.4.45", features = ["serde"] }
 cron = "0.17.0"
 dotenvy = "0.15.7"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2.0.21"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["request-id", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+# Proof generation and field helpers. Follows `main`; Cargo.lock pins the exact commit.
+shielded-pool-circuit = { git = "https://github.com/adamsmo/solana-proof-generator", branch = "main" }
+# Field traits (PrimeField::from_repr, Field::random) for the circuit's Fr. Same ff as halo2curves 0.7.
+ff = "0.13"
+
+# Program interface generated from idls/zk_shielded_pool_solana.json (declare_program!).
+# Same source as the program. `async` is required: without it `Program` owns its own
+# tokio runtime, and dropping that inside the axum runtime panics.
+anchor-lang = { git = "https://github.com/otter-sec/anchor.git", branch = "anchor-next" }
+anchor-client = { git = "https://github.com/otter-sec/anchor.git", branch = "anchor-next", features = ["async"] }
+# min_const_generics: Pod/Zeroable for every [u8; N]. The generated account types hold
+# [u8; 1500] / [u8; 3200] / [u8; 640], which default bytemuck does not cover. Same as the program.
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
+
+# Solana: the same versions anchor-next uses (Agave 4.3 line). `cargo tree -d` must show one
+# major of solana-transaction / solana-message / solana-instruction (A1).
+solana-rpc-client = "4.3"
+solana-rpc-client-api = "4.3"
+solana-commitment-config = "3.1"
+solana-compute-budget-interface = "3.1"
+solana-hash = "4"
+solana-instruction = "3.5"
+solana-keypair = "3.1"
+solana-message = "4.5"
+solana-pubkey = "4.3"
+solana-signature = "3.5"
+solana-signer = "3.0"
+solana-system-interface = "3.3"
+solana-transaction = "4.2"
+solana-transaction-error = "3.4"
+solana-transaction-status-client-types = "4.3"
+
+# rand 0.8 matches the circuit crate's rand_core 0.6 (create_proof's RNG bound).
+rand = "0.8"
+sha3 = "0.10"
+hex = "0.4"
+bs58 = "0.5"
+
+[dev-dependencies]
+litesvm = "0.18"
+tempfile = "3"
+# HTTP client for the integration tests: they call the real server on a local port.
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Poseidon and halo2 are very slow unoptimised. Optimise every dependency, keep our crate debuggable.
+[profile.dev.package."*"]
+opt-level = 3
+
+# declare_program! emits `#[cfg(feature = "idl-build")]` into this crate. We never build the IDL here.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("idl-build"))'] }
+
+# Tests live in subdirectories, which Cargo does not discover: every test file needs an entry.
+[[test]]
+name = "litesvm_program"
+path = "tests/unit_tests/litesvm_program.rs"
+
+[[test]]
+name = "it_smoke"
+path = "tests/integration_tests/it_smoke.rs"

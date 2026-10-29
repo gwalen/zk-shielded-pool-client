@@ -1,6 +1,13 @@
 program_id := "FCrymxYUTEnXDJXdDn2E71KPxB9sBjXZCh1ezBwmUhvp"
 rpc_url := "http://127.0.0.1:8899"
 
+# Defaults for `just it`: offline, no mainnet fork, with the SIMD-0529 sol_big_mod_exp syscall
+# (feature expH2pp…) that the withdraw verifier needs. Requires Surfpool >= 1.7.0 (Agave 4.3).
+# The feature is not active on mainnet/devnet yet, so this is NOT a mainnet check.
+# Override from the shell, e.g. `SURFPOOL_OFFLINE= SURFPOOL_FEATURES= just it` for a plain mainnet fork.
+export SURFPOOL_OFFLINE := env("SURFPOOL_OFFLINE", "1")
+export SURFPOOL_FEATURES := env("SURFPOOL_FEATURES", "expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg")
+
 # Build the program in the sibling repo, then copy its IDL into idls/.
 program-build:
     cd ../pool-anchor-v2-rewrite && NO_DNA=1 anchor build
@@ -14,8 +21,8 @@ surfpool:
 # Integration tests in one command: start Surfpool, wait for the deployment runbook, run the
 # Rust integration tests, always stop Surfpool.
 #   SURFPOOL_OFFLINE=1   no mainnet fork (fast, no network, same mainnet feature set)
-#   SURFPOOL_FEATURES=a,b extra --feature flags (local unblocking only, NOT a mainnet check;
-#                         with EBq48m… deploy/deposit work, withdraw math is wrong)
+#   SURFPOOL_FEATURES=a,b extra --feature flags (NOT a mainnet check)
+# Both default to the values at the top of this file.
 it:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -35,7 +42,6 @@ it:
         IFS=',' read -ra features <<< "${SURFPOOL_FEATURES}"
         for feature in "${features[@]}"; do args+=(--feature "$feature"); done
         echo "WARNING: extra features enabled (${SURFPOOL_FEATURES}): this run is NOT a mainnet check" >&2
-        echo "WARNING: Surfpool's big_mod_exp is the old big-endian syscall, not SIMD-0529: withdraw results are invalid" >&2
     fi
     NO_DNA=1 surfpool start "${args[@]}" >"$log" 2>&1 &
     surfpool_pid=$!

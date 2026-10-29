@@ -4,6 +4,8 @@ target/
 .env
 
 .claude/
+.codex/
+.cursor/
 
 docs-prv/
 # Deposit notes hold the secret `s` (mode 0600). Never commit them.

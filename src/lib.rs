@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app_error;
+pub mod service;
 pub mod solana;
 pub mod state;
 pub mod zk;

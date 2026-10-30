@@ -47,25 +47,25 @@ static PROGRAM_ERROR_CODES_TO_NAMES: LazyLock<HashMap<u32, String>> = LazyLock::
         .collect()
 });
 
-pub fn pda_program_config() -> Pubkey {
+pub fn derive_program_config_pda() -> Pubkey {
     find_pda(&[PROGRAM_CONFIG_SEED])
 }
 
-pub fn pda_vault() -> Pubkey {
+pub fn derive_vault_pda() -> Pubkey {
     find_pda(&[VAULT_SEED])
 }
 
-pub fn pda_root_registry() -> Pubkey {
+pub fn derive_root_registry_pda() -> Pubkey {
     find_pda(&[ROOT_REGISTRY_SEED])
 }
 
 /// Proof buffer of one `sender`. The same sender must upload, withdraw and close.
-pub fn pda_proof(sender: &Pubkey, proof_hash: &[u8; 32]) -> Pubkey {
+pub fn derive_proof_pda(sender: &Pubkey, proof_hash: &[u8; 32]) -> Pubkey {
     find_pda(&[PROOF_STORAGE_SEED, sender.as_ref(), proof_hash])
 }
 
 /// `nullifier_be` is the big-endian nullifier, the same bytes as `public_inputs.nullifier`.
-pub fn pda_nullifier(nullifier_be: &[u8; 32]) -> Pubkey {
+pub fn derive_nullifier_pda(nullifier_be: &[u8; 32]) -> Pubkey {
     find_pda(&[NULLIFIER_SEED, nullifier_be])
 }
 
@@ -106,11 +106,11 @@ mod tests {
     #[test]
     fn pdas_use_the_program_seeds() {
         let (expected, _) = Pubkey::find_program_address(&[b"vault"], &ID);
-        assert_eq!(pda_vault(), expected);
+        assert_eq!(derive_vault_pda(), expected);
         let sender = Pubkey::new_unique();
         let hash = [7u8; 32];
         let (expected, _) =
             Pubkey::find_program_address(&[b"proof_storage", sender.as_ref(), &hash], &ID);
-        assert_eq!(pda_proof(&sender, &hash), expected);
+        assert_eq!(derive_proof_pda(&sender, &hash), expected);
     }
 }

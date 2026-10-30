@@ -71,7 +71,7 @@ mod tests {
     use super::*;
     use anchor_lang::Discriminator;
 
-    fn registry_bytes(root: [u8; 32], next_leaf_idx: u32, history: &[[u8; 32]]) -> Vec<u8> {
+    fn create_registry_bytes(root: [u8; 32], next_leaf_idx: u32, history: &[[u8; 32]]) -> Vec<u8> {
         let mut data = RootRegistry::DISCRIMINATOR.to_vec();
         data.extend_from_slice(&root);
         data.extend_from_slice(&[0u8; 640 * 2]); // frontiers + zero values
@@ -86,11 +86,11 @@ mod tests {
 
     #[test]
     fn decode_rejects_wrong_discriminator_or_short_data() {
-        let mut data = registry_bytes([7; 32], 0, &[]);
+        let mut data = create_registry_bytes([7; 32], 0, &[]);
         assert!(ProgramConfigView::decode(&data).is_err());
         data[0] ^= 1;
         assert!(RootRegistryView::decode(&data).is_err());
-        let short = &registry_bytes([7; 32], 0, &[])[..100];
+        let short = &create_registry_bytes([7; 32], 0, &[])[..100];
         assert!(RootRegistryView::decode(short).is_err());
     }
 }

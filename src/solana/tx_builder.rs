@@ -37,11 +37,11 @@ pub async fn send_v0(
     payer: &Keypair,
     ixs: &[Instruction],
 ) -> RequestResult<Signature> {
-    let blockhash = rpc.get_latest_blockhash().await.map_err(rpc_error)?;
+    let blockhash = rpc.get_latest_blockhash().await.map_err(create_rpc_error)?;
     let tx = compile_v0(payer, ixs, blockhash)?;
     rpc.send_and_confirm_transaction(&tx)
         .await
-        .map_err(rpc_error)
+        .map_err(create_rpc_error)
 }
 
 /// Log messages of a confirmed transaction.
@@ -59,7 +59,7 @@ pub async fn transaction_logs(
     let tx = rpc
         .get_transaction_with_config(signature, config)
         .await
-        .map_err(rpc_error)?;
+        .map_err(create_rpc_error)?;
 
     let logs = tx
         .transaction
@@ -71,7 +71,7 @@ pub async fn transaction_logs(
 }
 
 /// RPC and simulation failures -> `AppError::RpcError`, naming the program error when there is one.
-pub fn rpc_error(error: ClientError) -> AppError {
+pub fn create_rpc_error(error: ClientError) -> AppError {
     match error.get_transaction_error() {
         Some(tx_error) => AppError::RpcError(parse_transaction_error(&tx_error)),
         None => AppError::RpcError(error.to_string()),

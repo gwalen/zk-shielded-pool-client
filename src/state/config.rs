@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::HashSet, env, fmt, path::PathBuf, str::FromStr, sync::Arc};
 
 use anchor_client::Cluster;
 use anyhow::anyhow;
@@ -6,7 +6,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 
-use crate::app_error::RawResult;
+use crate::{app_error::RawResult, solana::program_helpers};
 
 pub const DEFAULT_PROGRAM_ID: &str = "FCrymxYUTEnXDJXdDn2E71KPxB9sBjXZCh1ezBwmUhvp";
 pub const DEFAULT_ZK_DEPOSIT_DATA_DIR: &str = "./data/zk-deposit-params";
@@ -35,7 +35,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> RawResult<Self> {
-        Self::from_vars(|name| std::env::var(name).ok())
+        Self::from_vars(|name| env::var(name).ok())
     }
 
     /// Same as `from_env`, but reads the variables through `get` (tests build a config without
@@ -53,10 +53,10 @@ impl Config {
         let program_id = Pubkey::from_str(program_id_raw.trim())
             .map_err(|_| anyhow!("PROGRAM_ID is not a valid public key: {program_id_raw}"))?;
         // Instructions go to the IDL address. A different PROGRAM_ID would only mislead.
-        if program_id != crate::solana::program_helpers::ID {
+        if program_id != program_helpers::ID {
             return Err(anyhow!(
                 "PROGRAM_ID {program_id} differs from the IDL address {}; run scripts/sync-idl.sh",
-                crate::solana::program_helpers::ID
+                program_helpers::ID
             ));
         }
 

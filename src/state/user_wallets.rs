@@ -88,20 +88,20 @@ mod tests {
     use super::*;
     use axum::{http::StatusCode, response::IntoResponse};
 
-    fn wallets(kind: WalletKind, n: usize) -> UserWallets {
+    fn create_user_wallets(kind: WalletKind, n: usize) -> UserWallets {
         let keys: Vec<_> = (0..n).map(|_| Arc::new(Keypair::new())).collect();
         UserWallets::new(kind, &keys)
     }
 
     #[test]
     fn lookup_and_default() {
-        let set = wallets(WalletKind::Deposit, 2);
-        let [first, second] = set.pubkeys()[..] else {
+        let deposit_wallets = create_user_wallets(WalletKind::Deposit, 2);
+        let [first, second] = deposit_wallets.pubkeys()[..] else {
             panic!()
         };
-        assert_eq!(set.default().pubkey(), first);
+        assert_eq!(deposit_wallets.default().pubkey(), first);
         assert_eq!(
-            set.parse_and_get(&second.to_string()).unwrap().pubkey(),
+            deposit_wallets.parse_and_get(&second.to_string()).unwrap().pubkey(),
             second
         );
     }
@@ -109,26 +109,26 @@ mod tests {
     /// A withdraw wallet sent as `deposit_wallet_address` is a 400, and the other way round.
     #[test]
     fn a_wallet_from_the_other_set_is_a_bad_request() {
-        let deposit = wallets(WalletKind::Deposit, 1);
-        let withdraw = wallets(WalletKind::Withdraw, 1);
+        let deposit_wallets = create_user_wallets(WalletKind::Deposit, 1);
+        let withdraw_wallets = create_user_wallets(WalletKind::Withdraw, 1);
 
-        for (set, other) in [(&deposit, &withdraw), (&withdraw, &deposit)] {
-            let err = set
-                .parse_and_get(&other.default().pubkey().to_string())
+        for (user_wallets, other_user_wallets) in [(&deposit_wallets, &withdraw_wallets), (&withdraw_wallets, &deposit_wallets)] {
+            let err = user_wallets
+                .parse_and_get(&other_user_wallets.default().pubkey().to_string())
                 .unwrap_err();
             let message = err.to_string();
             assert!(
-                message.contains(&format!("not a configured {} wallet", set.kind())),
+                message.contains(&format!("not a configured {} wallet", user_wallets.kind())),
                 "{message}"
             );
             assert!(
-                !message.contains(&set.default().pubkey().to_string()),
+                !message.contains(&user_wallets.default().pubkey().to_string()),
                 "lists configured wallets"
             );
             assert_eq!(err.into_response().status(), StatusCode::BAD_REQUEST);
         }
 
-        let err = deposit.parse_and_get("not-a-key").unwrap_err();
+        let err = deposit_wallets.parse_and_get("not-a-key").unwrap_err();
         assert_eq!(err.into_response().status(), StatusCode::BAD_REQUEST);
     }
 }

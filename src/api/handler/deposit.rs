@@ -1,26 +1,25 @@
 use crate::{
     api::data::{deposit_input::DepositInput, deposit_output::DepositOutput},
-    app_error::{AppError, RequestResult},
+    app_error::RequestResult,
+    service,
+    state::AppState,
 };
-use axum::{Json, extract::rejection::JsonRejection, http::StatusCode};
+use axum::{
+    Json,
+    extract::{State, rejection::JsonRejection},
+    http::StatusCode,
+};
 use tracing::info;
 
 pub async fn handler(
-    payload: Result<Json<DepositInput>, JsonRejection>
+    State(state): State<AppState>,
+    payload: Result<Json<DepositInput>, JsonRejection>,
 ) -> RequestResult<(StatusCode, Json<DepositOutput>)> {
     let Json(input) = payload?;
-    info!("Deposit input: {input:#?}");
+    let request = input.into_request(&state.deposit_wallets)?;
 
-    if input.deposit_wallet_address.is_empty() {
-        return Err(AppError::BadRequest(
-            "Deposit wallet address is empty".into(),
-        ));
-    }
+    let receipt = service::deposit::deposit(&state, request).await?;
+    info!(deposit_id = %receipt.zk_deposit_data.id, tx_signature = %receipt.tx_signature, "Deposit confirmed");
 
-    Ok((
-        StatusCode::OK,
-        Json(DepositOutput {
-            tx_hash: "0x1234567890".to_string(),
-        }),
-    ))
+    Ok((StatusCode::OK, Json(DepositOutput::from(receipt))))
 }

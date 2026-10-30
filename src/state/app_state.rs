@@ -19,7 +19,7 @@ pub struct AppState {
     pub pool: Arc<ZkPoolProgram>,
     pub deposit_wallets: Arc<UserWallets>,
     pub withdraw_wallets: Arc<UserWallets>,
-    pub notes: Arc<ZkDepositDataWriter>,
+    pub zk_deposit_data_writer: Arc<ZkDepositDataWriter>,
 }
 
 impl AppState {
@@ -28,7 +28,7 @@ impl AppState {
         let pool = ZkPoolProgram::new(config.cluster())?;
         let deposit_wallets = UserWallets::new(WalletKind::Deposit, &config.deposit_wallet_keys);
         let withdraw_wallets = UserWallets::new(WalletKind::Withdraw, &config.withdraw_wallet_keys);
-        let notes = ZkDepositDataWriter::new(&config.zk_deposit_data_dir)?;
+        let zk_deposit_data_writer = ZkDepositDataWriter::new(&config.zk_deposit_data_dir)?;
 
         Ok(Self {
             config: Arc::new(config),
@@ -36,7 +36,7 @@ impl AppState {
             pool: Arc::new(pool),
             deposit_wallets: Arc::new(deposit_wallets),
             withdraw_wallets: Arc::new(withdraw_wallets),
-            notes: Arc::new(notes),
+            zk_deposit_data_writer: Arc::new(zk_deposit_data_writer),
         })
     }
 }

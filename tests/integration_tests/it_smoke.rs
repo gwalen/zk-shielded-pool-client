@@ -5,11 +5,12 @@
 mod common;
 
 use axum::http::StatusCode;
-use solana_signer::Signer;
 use common::surfnet::SurfnetEnv;
+use shielded_pool_circuit::circuit::utils::fr_to_le_bytes;
+use solana_signer::Signer;
 use zk_shielded_pool_client::{
     solana::accounts_helpers::{fetch_program_config, fetch_root_registry},
-    zk::field::{empty_tree_root, fr_le},
+    zk::field::create_empty_tree_root,
 };
 
 #[tokio::test]
@@ -18,19 +19,19 @@ async fn smoke_pool_initialized() {
     let env = SurfnetEnv::connect().await;
     let owner = env.ensure_pool_initialized().await;
 
-    let config = fetch_program_config(&env.rpc).await.unwrap().expect("program_config exists");
-    let registry = fetch_root_registry(&env.rpc).await.unwrap().expect("root_registry exists");
-    assert_eq!(config.owner, owner.pubkey());
-    assert!(!config.paused);
-    assert!(config.min_deposit_lamports > 0);
+    let program_config_account_view = fetch_program_config(&env.rpc).await.unwrap().expect("program_config exists");
+    let root_registry_account_view = fetch_root_registry(&env.rpc).await.unwrap().expect("root_registry exists");
+    assert_eq!(program_config_account_view.owner, owner.pubkey());
+    assert!(!program_config_account_view.paused);
+    assert!(program_config_account_view.min_deposit_lamports > 0);
 
-    if registry.next_leaf_idx == 0 {
+    if root_registry_account_view.next_leaf_idx == 0 {
         // Fresh surfnet: the depth-20 empty root.
-        assert_eq!(registry.root_le, fr_le(empty_tree_root()));
+        assert_eq!(root_registry_account_view.root_le, fr_to_le_bytes(create_empty_tree_root()));
     } else {
-        eprintln!("surfnet is not fresh: {} leaves already", registry.next_leaf_idx);
+        eprintln!("surfnet is not fresh: {} leaves already", root_registry_account_view.next_leaf_idx);
     }
-    assert!(registry.is_known_root(&registry.root_le));
+    assert!(root_registry_account_view.is_known_root(&root_registry_account_view.root_le));
 
     // The real server, on a local port, against the surfnet.
     let server = env.start_server().await;

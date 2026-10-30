@@ -23,7 +23,10 @@ surfpool:
 #   SURFPOOL_OFFLINE=1   no mainnet fork (fast, no network, same mainnet feature set)
 #   SURFPOOL_FEATURES=a,b extra --feature flags (NOT a mainnet check)
 # Both default to the values at the top of this file.
-it:
+# Extra arguments go to the test binaries, e.g. 
+# `just it --nocapture` prints test output.
+#
+it *test_args:
     #!/usr/bin/env bash
     set -euo pipefail
     # surfpool inherits this shell's stdout/stderr, so its logs would interleave with the
@@ -57,10 +60,10 @@ it:
     done
     # The RPC answers before the deployment runbook finishes (longer with a mainnet fork).
     just wait-for-deployment
-    just _it-tests
+    just _it-tests {{test_args}}
 
 # Integration tests against a surfnet already running (`just surfpool` in another terminal).
-it-surfpool:
+it-surfpool *test_args:
     #!/usr/bin/env bash
     set -euo pipefail
     if ! curl -s {{rpc_url}} >/dev/null; then
@@ -69,21 +72,21 @@ it-surfpool:
         exit 1
     fi
     just wait-for-deployment
-    just _it-tests
+    just _it-tests {{test_args}}
 
 # Two commands: Cargo orders test binaries by name, and the smoke test must see the fresh
 # surfnet first. Deposit/withdraw share one tree, so they run on one thread.
 [private]
-_it-tests:
+_it-tests *test_args:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --test it_smoke -- --ignored
+    cargo test --test it_smoke -- --ignored {{test_args}}
     tests=()
     for t in it_deposit it_withdraw; do
         [[ -f "tests/integration_tests/$t.rs" ]] && tests+=(--test "$t")
     done
     if (( ${#tests[@]} )); then
-        cargo test "${tests[@]}" -- --ignored --test-threads=1
+        cargo test "${tests[@]}" -- --ignored --test-threads=1 {{test_args}}
     fi
 
 # Block until the deployment runbook made the program executable on the surfnet (max 60 s).

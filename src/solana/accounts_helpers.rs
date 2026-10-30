@@ -5,12 +5,12 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use super::accounts::{ProgramConfigView, RootRegistryView};
-use super::program_helpers::{pda_program_config, pda_root_registry};
+use super::program_helpers::{derive_program_config_pda, derive_root_registry_pda};
 use crate::app_error::{AppError, RequestResult};
 
 /// `None` if the pool is not initialized yet.
 pub async fn fetch_program_config(rpc: &RpcClient) -> RequestResult<Option<ProgramConfigView>> {
-    fetch_account_data(rpc, &pda_program_config())
+    fetch_account_data(rpc, &derive_program_config_pda())
         .await?
         .as_deref()
         .map(ProgramConfigView::decode)
@@ -19,7 +19,7 @@ pub async fn fetch_program_config(rpc: &RpcClient) -> RequestResult<Option<Progr
 
 /// `None` if the pool is not initialized yet.
 pub async fn fetch_root_registry(rpc: &RpcClient) -> RequestResult<Option<RootRegistryView>> {
-    fetch_account_data(rpc, &pda_root_registry())
+    fetch_account_data(rpc, &derive_root_registry_pda())
         .await?
         .as_deref()
         .map(RootRegistryView::decode)

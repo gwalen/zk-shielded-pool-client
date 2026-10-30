@@ -79,3 +79,7 @@ path = "tests/unit_tests/litesvm_program.rs"
 [[test]]
 name = "it_smoke"
 path = "tests/integration_tests/it_smoke.rs"
+
+[[test]]
+name = "it_deposit"
+path = "tests/integration_tests/it_deposit.rs"

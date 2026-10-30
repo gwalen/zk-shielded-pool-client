@@ -1,4 +1,6 @@
-use tokio::net::TcpListener;
+use std::thread;
+
+use tokio::{net::TcpListener, runtime::Handle};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zk_shielded_pool_client::{
@@ -32,11 +34,11 @@ async fn main() {
 
     println!(
         "Available parallelism: {:?}",
-        std::thread::available_parallelism()
+        thread::available_parallelism()
     );
     println!(
         "Tokio workers: {}",
-        tokio::runtime::Handle::current().metrics().num_workers()
+        Handle::current().metrics().num_workers()
     );
 
     let listener = TcpListener::bind("127.0.0.1:3000")

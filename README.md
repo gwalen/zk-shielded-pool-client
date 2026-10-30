@@ -31,32 +31,34 @@ deposit wallet, the two are linked on chain. Fund withdraw wallets from an unrel
     That gate only unblocks the deploy (initialize/deposit). The program targets the Agave 4.3 syscall
     (SIMD-0529, gate `expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg`, little-endian). Surfpool 1.5 runs the older
     big-endian version under `EBq48m…` and does not know `expH2pp…`, so **withdraw results on Surfpool are invalid**.
+- `just it --nocapture`: prints test output.
+
 - `just surfpool` + `just it-surfpool`: same tests against a surfnet you keep running.
-- The server never initializes the pool. Tests do it themselves (LiteSVM and `just it`). For manual
-  runs against `just surfpool`, initialize it from the program repository:
-  `cd ../pool-anchor-v2-rewrite && yarn install && yarn initialize-pool`
-  (owner = `~/.config/solana/id.json`, or `OWNER_KEYPAIR`).
 
 
 
-## Tets endpoints
+## Test endpoints
 
 - /health
 ```
 curl -i localhost:3000/health
 ```
 
-- /deposit
+- /deposit: `deposit_wallet_address` picks the signer from `DEPOSIT_WALLET_PRIVATE_KEYS`. Chunks are lamports
+  (a chunk may be 0); the total is their sum and must reach the pool minimum.
 ```
 curl -i -X POST localhost:3000/deposit \
   -H 'content-type: application/json' \
   -d '{
-    "chunks": [100, 200, 300],
+    "chunks": [2000000000, 3000000000, 4000000000],
     "withdraw_addresses": [
-      "Addr111111111111111111111111111111111111111",
-      "Addr222222222222222222222222222222222222222",
-      "Addr333333333333333333333333333333333333333"
+      "<base58 recipient 1>",
+      "<base58 recipient 2>",
+      "<base58 recipient 3>"
     ],
-    "wallet_address": "Wallet1111111111111111111111111111111111111"
+    "deposit_wallet_address": "<base58 deposit wallet>"
   }'
 ```
+  The response holds `deposit_id`, `tx_signature`, `total_amount`, `new_root` (hex LE) and the full `zk_deposit_data`,
+  including the secret `secret_s`. The same zk deposit data is stored in `ZK_DEPOSIT_DATA`. Keep it private: it is what
+  withdraws the funds.

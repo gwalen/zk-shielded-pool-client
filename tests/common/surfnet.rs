@@ -7,8 +7,9 @@
 //! client must not outlive the runtime it was built in). The pool owner is a fixed test key,
 //! so every test binary can sign owner-only instructions (pause / unpause).
 
-use std::{future::IntoFuture, sync::Arc, time::Duration};
+use std::{env, future::IntoFuture, sync::Arc, time::Duration};
 
+use super::admin_ixs;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 use solana_keypair::Keypair;
@@ -21,11 +22,8 @@ use tokio::net::TcpListener;
 use zk_shielded_pool_client::{
     app,
     solana::{
-        accounts_helpers::fetch_program_config,
-        constants::RPC_COMMITMENT,
-        instructions::ZkPoolProgram,
-        program_helpers::ID,
-        tx_builder::send_v0,
+        accounts_helpers::fetch_program_config, constants::RPC_COMMITMENT,
+        instructions::ZkPoolProgram, program_helpers::ID, tx_builder::send_v0,
     },
     state::{AppState, Config},
 };
@@ -35,7 +33,8 @@ const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_WS_URL: &str = "ws://127.0.0.1:8900";
 
 /// Throwaway key that initializes the pool on a surfnet and so becomes its owner.
-const POOL_OWNER_KEY_JSON: &str = include_str!("../fixtures/keys/tmpo2qzmuksinGFdeEcYCySxtc2kwhzAxWy4y65dLcr.json");
+const POOL_OWNER_KEY_JSON: &str =
+    include_str!("../fixtures/keys/tmpo2qzmuksinGFdeEcYCySxtc2kwhzAxWy4y65dLcr.json");
 
 pub fn pool_owner() -> Keypair {
     let bytes: Vec<u8> = serde_json::from_str(POOL_OWNER_KEY_JSON).unwrap();
@@ -52,9 +51,12 @@ pub struct SurfnetEnv {
 impl SurfnetEnv {
     /// Panics with a clear message if the surfnet is not running or the program is not deployed.
     pub async fn connect() -> Self {
-        let rpc_url = std::env::var("SURFNET_RPC_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
-        let ws_url = std::env::var("SURFNET_WS_URL").unwrap_or_else(|_| DEFAULT_WS_URL.into());
-        let rpc = Arc::new(RpcClient::new_with_commitment(rpc_url.clone(), RPC_COMMITMENT));
+        let rpc_url = env::var("SURFNET_RPC_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+        let ws_url = env::var("SURFNET_WS_URL").unwrap_or_else(|_| DEFAULT_WS_URL.into());
+        let rpc = Arc::new(RpcClient::new_with_commitment(
+            rpc_url.clone(),
+            RPC_COMMITMENT,
+        ));
 
         if let Err(e) = rpc.get_version().await {
             panic!("surfnet RPC at {rpc_url} does not answer ({e}); run `just it`");
@@ -68,8 +70,17 @@ impl SurfnetEnv {
             panic!("program {ID} is not deployed on {rpc_url}; run `just it`");
         }
 
-        let pool = ZkPoolProgram::new(anchor_client::Cluster::Custom(rpc_url.clone(), ws_url.clone())).unwrap();
-        Self { rpc_url, ws_url, rpc, pool }
+        let pool = ZkPoolProgram::new(anchor_client::Cluster::Custom(
+            rpc_url.clone(),
+            ws_url.clone(),
+        ))
+        .unwrap();
+        Self {
+            rpc_url,
+            ws_url,
+            rpc,
+            pool,
+        }
     }
 
     /// Sends `initialize`, signed by `pool_owner()`, if `program_config` is missing.
@@ -77,36 +88,59 @@ impl SurfnetEnv {
     pub async fn ensure_pool_initialized(&self) -> Keypair {
         let owner = pool_owner();
         if fetch_program_config(&self.rpc).await.unwrap().is_none() {
-            self.fund(&owner.pubkey(), 2 * LAMPORTS_PER_SOL).await;
-            send_v0(&self.rpc, &owner, &[super::admin_ixs::initialize(&self.pool, owner.pubkey())])
-                .await
-                .expect("initialize");
+            self.fund_account_with_lamports(&owner.pubkey(), 2 * LAMPORTS_PER_SOL)
+                .await;
+            send_v0(
+                &self.rpc,
+                &owner,
+                &[admin_ixs::initialize(&self.pool, owner.pubkey())],
+            )
+            .await
+            .expect("initialize");
         }
         owner
     }
 
     /// A fresh keypair holding `lamports`. Airdrop first; the `surfnet_setAccount` cheatcode
     /// if the airdrop fails.
-    pub async fn funded_keypair(&self, lamports: u64) -> Keypair {
+    pub async fn create_funded_keypair(&self, lamports: u64) -> Keypair {
         let keypair = Keypair::new();
-        self.fund(&keypair.pubkey(), lamports).await;
+        self.fund_account_with_lamports(&keypair.pubkey(), lamports)
+            .await;
         keypair
     }
 
-    pub async fn fund(&self, pubkey: &Pubkey, lamports: u64) {
+    /// Tries airdrop first; if that fails, sets lamports with `surfnet_setAccount`.
+    pub async fn fund_account_with_lamports(&self, pubkey: &Pubkey, lamports: u64) {
         let balance_before = self.rpc.get_balance(pubkey).await.unwrap_or(0);
         if self.airdrop(pubkey, lamports).await.is_err() {
-            self.surfnet_rpc("surfnet_setAccount", json!([pubkey.to_string(), { "lamports": balance_before + lamports }]))
-                .await;
+            self.surfnet_rpc(
+                "surfnet_setAccount",
+                json!([pubkey.to_string(), { "lamports": balance_before + lamports }]),
+            )
+            .await;
         }
         let balance = self.rpc.get_balance(pubkey).await.unwrap();
-        assert!(balance >= balance_before + lamports, "funding {pubkey} failed: balance {balance}");
+        assert!(
+            balance >= balance_before + lamports,
+            "funding {pubkey} failed: balance {balance}"
+        );
     }
 
+    /// Requests SOL from the RPC faucet and waits for confirmation.
     async fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> Result<(), String> {
-        let signature = self.rpc.request_airdrop(pubkey, lamports).await.map_err(|e| e.to_string())?;
+        let signature = self
+            .rpc
+            .request_airdrop(pubkey, lamports)
+            .await
+            .map_err(|e| e.to_string())?;
         for _ in 0..100 {
-            if self.rpc.confirm_transaction(&signature).await.map_err(|e| e.to_string())? {
+            if self
+                .rpc
+                .confirm_transaction(&signature)
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -126,8 +160,8 @@ impl SurfnetEnv {
     /// against the surfnet: one fresh, funded deposit wallet and one withdraw wallet, zk deposit
     /// data in a temp dir (kept alive by the returned `ZkPoolClientTestServer`).
     pub async fn start_server(&self) -> ZkPoolClientTestServer {
-        let deposit_wallet = self.funded_keypair(50 * LAMPORTS_PER_SOL).await;
-        let withdraw_wallet = self.funded_keypair(5 * LAMPORTS_PER_SOL).await;
+        let deposit_wallet = self.create_funded_keypair(50 * LAMPORTS_PER_SOL).await;
+        let withdraw_wallet = self.create_funded_keypair(5 * LAMPORTS_PER_SOL).await;
         let zk_deposit_data_dir = tempfile::tempdir().unwrap();
 
         // mocked config for the server
@@ -149,7 +183,12 @@ impl SurfnetEnv {
         // start the test server in a new task
         tokio::spawn(axum::serve(listener, app(state.clone())).into_future());
 
-        ZkPoolClientTestServer { state, base_url, client: reqwest::Client::new(), _zk_deposit_data_dir: zk_deposit_data_dir }
+        ZkPoolClientTestServer {
+            state,
+            base_url,
+            client: reqwest::Client::new(),
+            _zk_deposit_data_dir: zk_deposit_data_dir,
+        }
     }
 }
 
@@ -169,7 +208,15 @@ impl ZkPoolClientTestServer {
     }
 
     pub async fn post_json(&self, path: &str, body: Value) -> (StatusCode, Value) {
-        response(self.client.post(self.url(path)).json(&body).send().await.unwrap()).await
+        response(
+            self.client
+                .post(self.url(path))
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await
     }
 
     fn url(&self, path: &str) -> String {
@@ -180,6 +227,10 @@ impl ZkPoolClientTestServer {
 async fn response(response: reqwest::Response) -> (StatusCode, Value) {
     let status = StatusCode::from_u16(response.status().as_u16()).unwrap();
     let bytes = response.bytes().await.unwrap();
-    let body = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, body)
 }

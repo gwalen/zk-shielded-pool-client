@@ -9,12 +9,12 @@
 
 use std::{env, future::IntoFuture, sync::Arc, time::Duration};
 
-use super::admin_ixs;
+use super::{admin_ixs, mock_failing_rpc_sender::MockFailingRpcSender};
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::{nonblocking::rpc_client::RpcClient, rpc_client::RpcClientConfig};
 use solana_rpc_client_api::request::RpcRequest;
 use solana_signer::Signer;
 use tempfile::TempDir;
@@ -156,10 +156,29 @@ impl SurfnetEnv {
             .unwrap_or_else(|e| panic!("{method} failed: {e}"))
     }
 
+    /// RPC client against the surfnet whose first `failure_count` calls of `failing_request` fail.
+    pub fn create_mock_failing_rpc(
+        &self,
+        failing_request: RpcRequest,
+        failure_count: usize,
+    ) -> Arc<RpcClient> {
+        Arc::new(RpcClient::new_sender(
+            MockFailingRpcSender::new(&self.rpc_url, failing_request, failure_count),
+            RpcClientConfig::with_commitment(RPC_COMMITMENT),
+        ))
+    }
+
+    pub async fn start_server(&self) -> ZkPoolClientTestServer {
+        self.start_server_with_rpc(self.rpc.clone()).await
+    }
+
     /// Starts the real server (`app()`, the same router `main.rs` serves) on a free local port,
     /// against the surfnet: one fresh, funded deposit wallet and one withdraw wallet, zk deposit
     /// data in a temp dir (kept alive by the returned `ZkPoolClientTestServer`).
-    pub async fn start_server(&self) -> ZkPoolClientTestServer {
+    pub async fn start_server_with_rpc(
+        &self,
+        server_rpc: Arc<RpcClient>,
+    ) -> ZkPoolClientTestServer {
         let deposit_wallet = self.create_funded_keypair(50 * LAMPORTS_PER_SOL).await;
         let withdraw_wallet = self.create_funded_keypair(5 * LAMPORTS_PER_SOL).await;
         let zk_deposit_data_dir = tempfile::tempdir().unwrap();
@@ -174,7 +193,8 @@ impl SurfnetEnv {
             withdraw_wallet_keys: vec![Arc::new(withdraw_wallet)],
             zk_deposit_data_dir: zk_deposit_data_dir.path().to_path_buf(),
         };
-        let state = AppState::new(config).unwrap();
+        let mut state = AppState::new(config).unwrap();
+        state.rpc = server_rpc;
 
         // Port 0: the OS picks a free port. The server task stops with the test's runtime.
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

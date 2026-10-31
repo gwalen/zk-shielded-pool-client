@@ -1,4 +1,9 @@
-use axum::{Json, extract::rejection::JsonRejection, http::StatusCode, response::{IntoResponse, Response}};
+use axum::{
+    Json,
+    extract::rejection::JsonRejection,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 use tracing::{error, warn};
 
@@ -16,11 +21,15 @@ pub enum AppError {
     #[error("Rpc error: {0}")]
     RpcError(String),
 
+    /// Preflight or on-chain failure: the tx did not take effect.
+    #[error("Transaction rejected: {0}")]
+    TxRejected(String),
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 
     #[error(transparent)]
-    JsonError(#[from] JsonRejection), 
+    JsonError(#[from] JsonRejection),
 
     #[error("Not found: {0}")]
     NotFound(String),
@@ -35,7 +44,7 @@ pub enum AppError {
 // simple struct to always print the same error format to the client
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
-    pub error: String
+    pub error: String,
 }
 
 impl IntoResponse for AppError {
@@ -44,32 +53,48 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => {
                 warn!("Bad request: {msg:?}");
                 (StatusCode::BAD_REQUEST, msg)
-            },
+            }
             AppError::RpcError(rpc_error) => {
                 error!("Rpc error: {rpc_error:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "rpc error".into())
-            },
+            }
+            AppError::TxRejected(tx_error) => {
+                error!("Transaction rejected: {tx_error:?}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "transaction rejected".into(),
+                )
+            }
             AppError::Internal(error) => {
                 error!("Internal error: {error:?}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".into())
-            },
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".into(),
+                )
+            }
             AppError::JsonError(json_rejection) => {
                 warn!("Json error: {:?}", json_rejection.body_text());
                 (json_rejection.status(), json_rejection.body_text())
-            },
+            }
             AppError::NotFound(msg) => {
                 warn!("Not found: {msg:?}");
                 (StatusCode::NOT_FOUND, "not found".into())
-            },
+            }
             AppError::Conflict(msg) => {
                 warn!("Conflict: {msg:?}");
                 (StatusCode::CONFLICT, "conflict".into())
-            },
+            }
             AppError::ProverError(prover_error) => {
                 error!("Prover error: {prover_error:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "prover error".into())
             }
         };
-        (status, Json(ErrorBody {error: public_error_msg})).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: public_error_msg,
+            }),
+        )
+            .into_response()
     }
 }

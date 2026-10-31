@@ -57,6 +57,7 @@ hex = "0.4"
 bs58 = "0.5"
 
 [dev-dependencies]
+async-trait = "0.1"
 litesvm = "0.18"
 tempfile = "3"
 # HTTP client for the integration tests: they call the real server on a local port.

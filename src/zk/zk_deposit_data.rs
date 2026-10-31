@@ -46,8 +46,9 @@ pub struct ZkDepositData {
     /// hex LE
     pub deposit_commitment_hash: String,
     pub status: ZkDepositStatus,
+    /// Signature of the signed deposit tx. Stored before sending, so the tx may not have landed.
     pub deposit_tx: Option<String>,
-    /// Why the deposit failed (`status == Failed`). Never contains the secret.
+    /// Why the deposit failed or could not be verified. Never contains the secret.
     #[serde(default)]
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -63,7 +64,10 @@ impl ZkDepositData {
     /// `s` as a field element.
     pub fn secret(&self) -> RequestResult<Fr> {
         parse_fr_hex(&self.secret_s).ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!("zk deposit data {}: invalid secret_s", self.id))
+            AppError::Internal(anyhow::anyhow!(
+                "zk deposit data {}: invalid secret_s",
+                self.id
+            ))
         })
     }
 }
@@ -124,7 +128,7 @@ impl ZkDepositDataWriter {
                 zk_deposit_data.id
             )));
         }
-        
+
         self.write_atomic(&path, zk_deposit_data).await
     }
 
@@ -141,7 +145,7 @@ impl ZkDepositDataWriter {
         change: impl FnOnce(&mut ZkDepositData),
     ) -> RequestResult<ZkDepositData> {
         let path = self.path(id)?;
-        
+
         let _guard = self.write_lock.lock().await;
 
         let mut zk_deposit_data = read(&path, id).await?;
@@ -171,9 +175,18 @@ impl ZkDepositDataWriter {
 
     // write file to tmp file first, if there was no error rename the file to the name, this avoids half-written files
     // which in case of a power loss or other unexpected error, the file would be corrupted and the secret "s" would be lost
-    async fn write_atomic(&self, path: &Path, zk_deposit_data: &ZkDepositData) -> RequestResult<()> {
+    async fn write_atomic(
+        &self,
+        path: &Path,
+        zk_deposit_data: &ZkDepositData,
+    ) -> RequestResult<()> {
         let json = serde_json::to_vec_pretty(zk_deposit_data) // give the file a human-readable format
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize zk deposit data {}: {e}", zk_deposit_data.id)))?;
+            .map_err(|e| {
+                AppError::Internal(anyhow::anyhow!(
+                    "serialize zk deposit data {}: {e}",
+                    zk_deposit_data.id
+                ))
+            })?;
         let tmp = path.with_extension("json.tmp");
 
         let mut options = fs::OpenOptions::new();
@@ -194,7 +207,9 @@ async fn read(path: &Path, id: &str) -> RequestResult<ZkDepositData> {
         Ok(bytes) => bytes,
         Err(e) => {
             if e.kind() == ErrorKind::NotFound {
-                return Err(AppError::NotFound(format!("zk deposit data not found: {id}")));
+                return Err(AppError::NotFound(format!(
+                    "zk deposit data not found: {id}"
+                )));
             } else {
                 return Err(create_io_error(e));
             }
@@ -241,7 +256,10 @@ mod tests {
         store.create(&deposit).await.unwrap();
         assert_eq!(store.get(&deposit.id).await.unwrap(), deposit);
         // Storing the same deposit twice is refused (409 Conflict), never overwritten.
-        assert!(matches!(store.create(&deposit).await, Err(AppError::Conflict(_))));
+        assert!(matches!(
+            store.create(&deposit).await,
+            Err(AppError::Conflict(_))
+        ));
 
         let updated = store
             .update(&deposit.id, |d| {
@@ -255,7 +273,10 @@ mod tests {
 
         let missing = hex::encode([0xCD; 32]);
         // An id that was never stored (404 Not Found), e.g. a withdraw for an unknown deposit.
-        assert!(matches!(store.get(&missing).await, Err(AppError::NotFound(_))));
+        assert!(matches!(
+            store.get(&missing).await,
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::{array, fs, sync::Arc};
 use axum::http::StatusCode;
 use common::{
     admin_ixs,
+    mock_failing_rpc_sender::SIMULATED_RPC_FAILURE,
     surfnet::{LAMPORTS_PER_SOL, SurfnetEnv, ZkPoolClientTestServer},
 };
 use serde_json::{Value, json};
@@ -20,6 +21,8 @@ use shielded_pool_circuit::circuit::{
 };
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::request::RpcRequest;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zk_shielded_pool_client::{
     api::data::deposit_output::DepositOutput,
@@ -330,12 +333,114 @@ async fn deposit_insufficient_funds() {
         panic!("expected one stored zk deposit data file")
     };
     assert_eq!(zk_deposit_data.status, ZkDepositStatus::Failed);
-    assert_eq!(zk_deposit_data.deposit_tx, None);
+    assert!(zk_deposit_data.deposit_tx.is_some());
     let error = zk_deposit_data
         .error
         .as_deref()
         .expect("the zk deposit data records the failure");
     assert!(error.contains("instruction 0 failed"), "{error}");
+}
+
+/// The tx is really sent, then every status poll fails: the deposit landed, so it must not be `Failed`.
+#[tokio::test]
+#[ignore = "needs surfpool: run `just it`"]
+async fn deposit_confirmation_rpc_error_stays_pending_with_tx() {
+    let env = SurfnetEnv::connect().await;
+    env.ensure_pool_initialized().await;
+
+    let server = env
+        .start_server_with_rpc(
+            env.create_mock_failing_rpc(RpcRequest::GetSignatureStatuses, usize::MAX),
+        )
+        .await;
+
+    let next_leaf_idx_before = fetch_root_registry(&env.rpc)
+        .await
+        .unwrap()
+        .unwrap()
+        .next_leaf_idx;
+
+    let (status, body) = server
+        .post_json("/deposit", deposit_body(&server, [LAMPORTS_PER_SOL, 0, 0]))
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+
+    let [zk_deposit_data] = &read_stored_zk_deposit_data(&server)[..] else {
+        panic!("expected one stored zk deposit data file")
+    };
+
+    assert_eq!(zk_deposit_data.status, ZkDepositStatus::Pending);
+
+    let error = zk_deposit_data
+        .error
+        .as_deref()
+        .expect("the zk deposit data records the send error");
+
+    assert!(error.contains(SIMULATED_RPC_FAILURE), "{error}");
+
+    let tx_signature: Signature = zk_deposit_data
+        .deposit_tx
+        .as_deref()
+        .expect("the zk deposit data records the tx")
+        .parse()
+        .unwrap();
+    
+    env.rpc.poll_for_signature(&tx_signature).await.unwrap();
+
+    let next_leaf_idx_after = fetch_root_registry(&env.rpc)
+        .await
+        .unwrap()
+        .unwrap()
+        .next_leaf_idx;
+
+    assert_eq!(next_leaf_idx_after, next_leaf_idx_before + 1);
+}
+
+/// A brief `get_transaction` failure after the tx is confirmed must not leave the deposit `Pending`.
+#[tokio::test]
+#[ignore = "needs surfpool: run `just it`"]
+async fn deposit_retries_get_transaction_and_succeeds() {
+    let env = SurfnetEnv::connect().await;
+    env.ensure_pool_initialized().await;
+    let server = env
+        .start_server_with_rpc(env.create_mock_failing_rpc(RpcRequest::GetTransaction, 2))
+        .await;
+
+    let (status, body) = server
+        .post_json("/deposit", deposit_body(&server, [LAMPORTS_PER_SOL, 0, 0]))
+        .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let output: DepositOutput = serde_json::from_value(body).unwrap();
+    assert_eq!(output.zk_deposit_data.status, ZkDepositStatus::Confirmed);
+}
+
+/// The retry is bounded: a lasting `get_transaction` failure returns an error and keeps the tx.
+#[tokio::test]
+#[ignore = "needs surfpool: run `just it`"]
+async fn deposit_retries_get_transaction_and_fails() {
+    let env = SurfnetEnv::connect().await;
+    env.ensure_pool_initialized().await;
+    let server = env
+        .start_server_with_rpc(env.create_mock_failing_rpc(RpcRequest::GetTransaction, usize::MAX))
+        .await;
+
+    let (status, body) = server
+        .post_json("/deposit", deposit_body(&server, [LAMPORTS_PER_SOL, 0, 0]))
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    let [zk_deposit_data] = &read_stored_zk_deposit_data(&server)[..] else {
+        panic!("expected one stored zk deposit data file")
+    };
+    assert_eq!(zk_deposit_data.status, ZkDepositStatus::Pending);
+    assert!(zk_deposit_data.deposit_tx.is_some());
+    let error = zk_deposit_data
+        .error
+        .as_deref()
+        .expect("the zk deposit data records the log fetch error");
+    assert!(error.contains(SIMULATED_RPC_FAILURE), "{error}");
 }
 
 #[tokio::test]

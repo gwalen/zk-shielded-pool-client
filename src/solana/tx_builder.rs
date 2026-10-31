@@ -13,9 +13,16 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
-use solana_transaction_status_client_types::UiTransactionEncoding;
+use solana_transaction_status_client_types::{
+    EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
+};
+use tokio::time::sleep;
+use tracing::warn;
 
-use super::program_helpers::get_error_name;
+use super::{
+    constants::{GET_TRANSACTION_ATTEMPTS, GET_TRANSACTION_RETRY_DELAY},
+    program_helpers::get_error_name,
+};
 use crate::app_error::{AppError, RequestResult};
 
 /// Build and sign a V0 transaction. The payer is the fee payer and the only signer: every
@@ -44,7 +51,7 @@ pub async fn send_v0(
         .map_err(create_rpc_error)
 }
 
-/// Log messages of a confirmed transaction.
+/// Log messages of a confirmed transaction, retrying `get_transaction` a bounded number of times.
 pub async fn transaction_logs(
     rpc: &RpcClient,
     signature: &Signature,
@@ -55,11 +62,7 @@ pub async fn transaction_logs(
         // Required: without it the RPC rejects V0 transactions.
         max_supported_transaction_version: Some(0),
     };
-
-    let tx = rpc
-        .get_transaction_with_config(signature, config)
-        .await
-        .map_err(create_rpc_error)?;
+    let tx = fetch_transaction_with_retry(rpc, signature, config).await?;
 
     let logs = tx
         .transaction
@@ -70,10 +73,32 @@ pub async fn transaction_logs(
     Ok(logs)
 }
 
-/// RPC and simulation failures -> `AppError::RpcError`, naming the program error when there is one.
+async fn fetch_transaction_with_retry(
+    rpc: &RpcClient,
+    signature: &Signature,
+    config: RpcTransactionConfig,
+) -> RequestResult<EncodedConfirmedTransactionWithStatusMeta> {
+    let mut attempt = 1;
+    loop {
+        match rpc.get_transaction_with_config(signature, config).await {
+            Ok(tx) => return Ok(tx),
+            Err(error) if attempt == GET_TRANSACTION_ATTEMPTS => {
+                return Err(create_rpc_error(error));
+            }
+            Err(error) => {
+                warn!(%signature, attempt, %error, "get_transaction failed, retrying");
+                attempt += 1;
+                sleep(GET_TRANSACTION_RETRY_DELAY).await;
+            }
+        }
+    }
+}
+
+/// Preflight and on-chain failures -> `AppError::TxRejected`, naming the program error when there
+/// is one. Every other failure -> `AppError::RpcError`: the tx may still have landed.
 pub fn create_rpc_error(error: ClientError) -> AppError {
     match error.get_transaction_error() {
-        Some(tx_error) => AppError::RpcError(parse_transaction_error(&tx_error)),
+        Some(tx_error) => AppError::TxRejected(parse_transaction_error(&tx_error)),
         None => AppError::RpcError(error.to_string()),
     }
 }
@@ -94,7 +119,26 @@ pub fn parse_transaction_error(error: &TransactionError) -> String {
 
 #[cfg(test)]
 mod tests {
+    use solana_rpc_client_api::{client_error::ErrorKind, request::RpcError};
+
     use super::*;
+
+    /// An on-chain failure is a definite rejection; "unable to confirm" leaves the outcome unknown.
+    #[test]
+    fn create_rpc_error_separates_rejections_from_unknown_outcomes() {
+        let on_chain_failure = ErrorKind::TransactionError(TransactionError::AccountNotFound);
+        assert!(matches!(
+            create_rpc_error(on_chain_failure.into()),
+            AppError::TxRejected(_)
+        ));
+
+        let unable_to_confirm =
+            ErrorKind::RpcError(RpcError::ForUser("unable to confirm transaction".into()));
+        assert!(matches!(
+            create_rpc_error(unable_to_confirm.into()),
+            AppError::RpcError(_)
+        ));
+    }
 
     #[test]
     fn check_transaction_error_parsing() {

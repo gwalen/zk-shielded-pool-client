@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use anyhow::format_err;
 use chrono::Utc;
 use ff::Field;
 use rand::rngs::OsRng;
@@ -13,6 +14,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction_error::TransactionError;
 use tracing::error;
 
 use crate::{
@@ -20,8 +22,11 @@ use crate::{
     solana::{
         accounts::ProgramConfigView,
         accounts_helpers::fetch_program_config,
-        events::{DepositDone, parse_deposit_done_events},
-        tx_builder::{compile_v0, create_rpc_error, transaction_logs},
+        events::parse_deposit_done_events,
+        tx_builder::{
+            compile_v0, create_rpc_error, fetch_transaction, parse_transaction_error,
+            parse_transaction_logs, transaction_logs,
+        },
     },
     state::AppState,
     zk::{
@@ -92,7 +97,7 @@ impl DepositCommitments {
             user_commitment_hash: hex::encode(fr_to_le_bytes(self.user_commitment_hash)),
             deposit_commitment_hash: hex::encode(fr_to_le_bytes(self.deposit_commitment_hash)),
             status: ZkDepositStatus::Pending,
-            deposit_tx: Some(tx_signature.to_string()),
+            deposit_tx: tx_signature.to_string(),
             error: None,
             created_at: Utc::now(),
             withdrawals: [None, None, None],
@@ -101,11 +106,12 @@ impl DepositCommitments {
 }
 
 /// Stores the zk deposit data and the tx signature before sending, so both survive a crash after the tx lands.
-/// A rejected tx marks the zk deposit data `Failed`; an unknown send outcome or a failed event check keeps it `Pending`.
+/// A rejected tx marks the zk deposit data `Failed`. An unknown send outcome or a failed event check keeps it
+/// `Pending` and returns `AppError::DepositPending`, so the client can check the deposit instead of retrying.
 pub async fn deposit(state: &AppState, request: DepositRequest) -> RequestResult<DepositReceipt> {
     let pool_config = fetch_program_config(&state.rpc)
         .await?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("the pool is not initialized")))?;
+        .ok_or_else(|| AppError::Internal(format_err!("the pool is not initialized")))?;
 
     check_pool_accepts_deposit(&pool_config, request.total_amount)?;
 
@@ -138,19 +144,30 @@ pub async fn deposit(state: &AppState, request: DepositRequest) -> RequestResult
 
     if let Err(send_error) = send_result {
         error!(deposit_id = %zk_deposit_data.id, %tx_signature, %send_error, "Deposit tx send failed");
-        state
+
+        let update_result = state
             .zk_deposit_data_writer
             .update(&zk_deposit_data.id, |zk_deposit_data| {
                 record_send_error(zk_deposit_data, &send_error)
             })
-            .await?;
-        return Err(send_error);
+            .await;
+
+        if let Err(update_error) = update_result {
+            error!(deposit_id = %zk_deposit_data.id, %tx_signature, %update_error, "Recording the deposit send error failed");
+        }
+
+        return Err(match send_error {
+            AppError::TxRejected(_) => send_error,
+            unknown_outcome_error => create_deposit_pending_error(
+                &zk_deposit_data.id,
+                tx_signature,
+                &unknown_outcome_error,
+            ),
+        });
     }
 
-    let new_root_result = transaction_logs(&state.rpc, &tx_signature)
-        .await
-        .and_then(|logs| parse_deposit_done_events(&logs))
-        .and_then(|events| check_deposit_done(&events, &commitments, request.total_amount));
+    let new_root_result =
+        fetch_and_check_deposit_done(state, &tx_signature, &zk_deposit_data).await;
 
     let zk_deposit_data = state
         .zk_deposit_data_writer
@@ -159,16 +176,11 @@ pub async fn deposit(state: &AppState, request: DepositRequest) -> RequestResult
         })
         .await
         .map_err(|update_error| {
-            error!(deposit_id = %zk_deposit_data.id, %tx_signature, %update_error, "Deposit tx landed but the zk deposit data update failed");
-            update_error
+            create_deposit_pending_error(&zk_deposit_data.id, tx_signature, &update_error)
         })?;
 
-    // extract new new root value
-    let new_root = new_root_result.map_err(|error| {
-        AppError::Internal(anyhow::anyhow!(
-            "deposit {} tx {tx_signature} landed but is unverified, the zk deposit data stays pending: {error}",
-            zk_deposit_data.id
-        ))
+    let new_root = new_root_result.map_err(|event_check_error| {
+        create_deposit_pending_error(&zk_deposit_data.id, tx_signature, &event_check_error)
     })?;
 
     Ok(DepositReceipt {
@@ -176,6 +188,89 @@ pub async fn deposit(state: &AppState, request: DepositRequest) -> RequestResult
         tx_signature,
         new_root_le: new_root,
     })
+}
+
+/// Moves `Pending` zk deposit data to `Confirmed` or `Failed` from the deposit tx on chain.
+/// `Confirmed` and `Failed` are final, so they come back as stored, without an RPC call.
+/// A tx the node doesn't know stays `Pending`: an RPC node with limited history also returns nothing.
+pub async fn reconcile_deposit(state: &AppState, deposit_id: &str) -> RequestResult<ZkDepositData> {
+    let zk_deposit_data = state.zk_deposit_data_writer.get(deposit_id).await?;
+
+    // tx is not pending, so it's either confirmed or failed which are final states
+    if zk_deposit_data.status != ZkDepositStatus::Pending {
+        return Ok(zk_deposit_data);
+    }
+
+    let tx_signature = parse_deposit_tx_signature(&zk_deposit_data)?;
+
+    let Some(deposit_tx) = fetch_transaction(&state.rpc, &tx_signature).await? else {
+        // tx was not found (may have not landed yet)
+        return Ok(zk_deposit_data);
+    };
+
+    // if tx found try to extract the error
+    let tx_error_opt = deposit_tx
+        .transaction
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.err.clone());
+
+    match tx_error_opt {
+        Some(tx_error) => {
+            let rejected_error =
+                AppError::TxRejected(parse_transaction_error(&TransactionError::from(tx_error)));
+
+            state
+                .zk_deposit_data_writer
+                .update(&zk_deposit_data.id, |zk_deposit_data| {
+                    record_send_error(zk_deposit_data, &rejected_error)
+                })
+                .await
+        }
+        // tx found and was successful(no error), so check the event
+        None => {
+            let new_root_result = parse_transaction_logs(&tx_signature, deposit_tx)
+                .and_then(|logs| check_deposit_done(&logs, &zk_deposit_data));
+
+            state
+                .zk_deposit_data_writer
+                .update(&zk_deposit_data.id, |zk_deposit_data| {
+                    record_event_check(zk_deposit_data, &new_root_result)
+                })
+                .await
+        }
+    }
+}
+
+fn parse_deposit_tx_signature(zk_deposit_data: &ZkDepositData) -> RequestResult<Signature> {
+    zk_deposit_data.deposit_tx.parse().map_err(|_| {
+        AppError::Internal(format_err!(
+            "zk deposit data {}: invalid deposit_tx",
+            zk_deposit_data.id
+        ))
+    })
+}
+
+fn create_deposit_pending_error(
+    deposit_id: &str,
+    tx_signature: Signature,
+    reason: &AppError,
+) -> AppError {
+    AppError::DepositPending {
+        deposit_id: deposit_id.to_string(),
+        tx_signature,
+        reason: reason.to_string(),
+    }
+}
+
+/// Reads the tx logs and checks its `DepositDone` event. Returns the new root (LE).
+async fn fetch_and_check_deposit_done(
+    state: &AppState,
+    tx_signature: &Signature,
+    zk_deposit_data: &ZkDepositData,
+) -> RequestResult<[u8; 32]> {
+    let logs = transaction_logs(&state.rpc, tx_signature).await?;
+    check_deposit_done(&logs, zk_deposit_data)
 }
 
 /// The program rejects a paused pool and a total below the minimum. Checked before any tx is sent.
@@ -199,29 +294,29 @@ fn check_pool_accepts_deposit(
     Ok(())
 }
 
-/// Exactly one `DepositDone` with our commitment and total. Returns the new root (LE).
-fn check_deposit_done(
-    events: &[DepositDone],
-    commitments: &DepositCommitments,
-    total_amount: u64,
-) -> RequestResult<[u8; 32]> {
-    let [event] = events else {
-        return Err(AppError::Internal(anyhow::anyhow!(
+/// The tx logs hold exactly one `DepositDone` with the locally computed commitment and total.
+/// Returns the new root (LE).
+fn check_deposit_done(logs: &[String], zk_deposit_data: &ZkDepositData) -> RequestResult<[u8; 32]> {
+    let events = parse_deposit_done_events(logs)?;
+
+    let [event] = &events[..] else {
+        return Err(AppError::Internal(format_err!(
             "expected exactly one DepositDone event, found {}",
             events.len()
         )));
     };
 
-    let expected = fr_to_le_bytes(commitments.deposit_commitment_hash);
-    let actual = event.deposit_commitment_hash.to_bytes();
+    let event_deposit_commitment_hash = hex::encode(event.deposit_commitment_hash.to_bytes());
+    let commitment_matches =
+        event_deposit_commitment_hash == zk_deposit_data.deposit_commitment_hash;
 
-    if actual != expected || event.total_amount != total_amount {
-        return Err(AppError::Internal(anyhow::anyhow!(
+    if !commitment_matches || event.total_amount != zk_deposit_data.total_amount {
+        return Err(AppError::Internal(format_err!(
             "DepositDone differs from the local commitment (client and program hash differently): \
-             program {} / {} lamports, local {} / {total_amount} lamports",
-            hex::encode(actual),
+             program {event_deposit_commitment_hash} / {} lamports, local {} / {} lamports",
             event.total_amount,
-            hex::encode(expected),
+            zk_deposit_data.deposit_commitment_hash,
+            zk_deposit_data.total_amount,
         )));
     }
 
@@ -239,7 +334,10 @@ fn record_send_error(zk_deposit_data: &mut ZkDepositData, send_error: &AppError)
 /// The tx landed: `Confirmed` only if the event check passed.
 fn record_event_check(zk_deposit_data: &mut ZkDepositData, checked_root: &RequestResult<[u8; 32]>) {
     match checked_root {
-        Ok(_) => zk_deposit_data.status = ZkDepositStatus::Confirmed,
+        Ok(_) => {
+            zk_deposit_data.status = ZkDepositStatus::Confirmed;
+            zk_deposit_data.error = None;
+        }
         Err(error) => zk_deposit_data.error = Some(error.to_string()),
     }
 }
@@ -250,6 +348,7 @@ mod tests {
     use shielded_pool_circuit::imt::imt_utils::{generate_zero_values_for_levels, poseidon_hash};
 
     use shielded_pool_circuit::transcript::fr_to_be;
+    use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
     use crate::zk::field::TREE_DEPTH;
 
@@ -295,7 +394,7 @@ mod tests {
         let zk_deposit_data = commitments.create_pending_zk_deposit_data(&request, &tx_signature);
         assert_eq!(zk_deposit_data.id, zk_deposit_data.deposit_commitment_hash);
         assert_eq!(zk_deposit_data.status, ZkDepositStatus::Pending);
-        assert_eq!(zk_deposit_data.deposit_tx, Some(tx_signature.to_string()));
+        assert_eq!(zk_deposit_data.deposit_tx, tx_signature.to_string());
     }
 
     /// Withdraw refuses anything not `Confirmed`, so only a definite rejection may end a deposit as `Failed`.
@@ -326,6 +425,27 @@ mod tests {
             unknown_outcome_zk_deposit_data.error,
             Some(unknown_outcome_error.to_string())
         );
+    }
+
+    /// Reconcile returns the stored error as is, and the RPC URL can hold a provider API key.
+    #[tokio::test]
+    async fn failed_rpc_call_stores_an_error_without_the_rpc_url() {
+        let rpc_api_key = "test-rpc-api-key";
+        let unreachable_rpc = RpcClient::new(format!("http://127.0.0.1:1/?api-key={rpc_api_key}"));
+
+        let rpc_call_error = unreachable_rpc.get_latest_blockhash().await.unwrap_err();
+        assert!(rpc_call_error.to_string().contains(rpc_api_key));
+
+        let request = create_fixture_request();
+        let commitments = DepositCommitments::compute(Fr::from(1u64), &request);
+        let mut zk_deposit_data =
+            commitments.create_pending_zk_deposit_data(&request, &Signature::default());
+
+        record_send_error(&mut zk_deposit_data, &create_rpc_error(rpc_call_error));
+
+        let stored_error = zk_deposit_data.error.unwrap();
+        assert!(!stored_error.contains(rpc_api_key), "{stored_error}");
+        assert!(!stored_error.contains("127.0.0.1"), "{stored_error}");
     }
 
     #[test]

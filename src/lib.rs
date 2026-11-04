@@ -24,6 +24,10 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check::handler))
         .route("/deposit", post(deposit::handler))
+        .route(
+            "/deposit/{deposit_id}/reconcile",
+            post(reconcile_deposit::handler),
+        )
         // .route("/withdraw", get(withdraw::handler));
         .layer(
             ServiceBuilder::new()

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use anchor_client::{Client, Cluster, Program};
+use anyhow::format_err;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -33,7 +34,7 @@ impl ZkPoolProgram {
         let client = Client::new_with_options(cluster, Arc::new(payer_placeholder), RPC_COMMITMENT);
         let program = client
             .program(ID)
-            .map_err(|e| anyhow::anyhow!("anchor client: {e}"))?; // -- next is this error creation which I dont like
+            .map_err(|e| format_err!("anchor client: {e}"))?;
         Ok(Self { program })
     }
 

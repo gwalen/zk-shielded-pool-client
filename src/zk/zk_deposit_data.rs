@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::format_err;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shielded_pool_circuit::circuit::utils::fr_to_le_bytes;
@@ -47,7 +48,7 @@ pub struct ZkDepositData {
     pub deposit_commitment_hash: String,
     pub status: ZkDepositStatus,
     /// Signature of the signed deposit tx. Stored before sending, so the tx may not have landed.
-    pub deposit_tx: Option<String>,
+    pub deposit_tx: String,
     /// Why the deposit failed or could not be verified. Never contains the secret.
     #[serde(default)]
     pub error: Option<String>,
@@ -64,10 +65,7 @@ impl ZkDepositData {
     /// `s` as a field element.
     pub fn secret(&self) -> RequestResult<Fr> {
         parse_fr_hex(&self.secret_s).ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!(
-                "zk deposit data {}: invalid secret_s",
-                self.id
-            ))
+            AppError::Internal(format_err!("zk deposit data {}: invalid secret_s", self.id))
         })
     }
 }
@@ -151,7 +149,7 @@ impl ZkDepositDataWriter {
         let mut zk_deposit_data = read(&path, id).await?;
         change(&mut zk_deposit_data);
         if zk_deposit_data.id != id {
-            return Err(AppError::Internal(anyhow::anyhow!(
+            return Err(AppError::Internal(format_err!(
                 "zk deposit data {id}: update changed the id"
             )));
         }
@@ -182,7 +180,7 @@ impl ZkDepositDataWriter {
     ) -> RequestResult<()> {
         let json = serde_json::to_vec_pretty(zk_deposit_data) // give the file a human-readable format
             .map_err(|e| {
-                AppError::Internal(anyhow::anyhow!(
+                AppError::Internal(format_err!(
                     "serialize zk deposit data {}: {e}",
                     zk_deposit_data.id
                 ))
@@ -217,11 +215,11 @@ async fn read(path: &Path, id: &str) -> RequestResult<ZkDepositData> {
     };
     // serde_json errors name the position and expected type, not the values, so no secret leaks.
     serde_json::from_slice(&bytes)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("zk deposit data {id} is corrupt: {e}")))
+        .map_err(|e| AppError::Internal(format_err!("zk deposit data {id} is corrupt: {e}")))
 }
 
 fn create_io_error(e: io::Error) -> AppError {
-    AppError::Internal(anyhow::anyhow!("zk deposit data internal error: {e}"))
+    AppError::Internal(format_err!("zk deposit data internal error: {e}"))
 }
 
 #[cfg(test)]
@@ -239,7 +237,7 @@ mod tests {
             user_commitment_hash: hex::encode([1; 32]),
             deposit_commitment_hash: hex::encode([id_byte; 32]),
             status: ZkDepositStatus::Pending,
-            deposit_tx: None,
+            deposit_tx: "sig".into(),
             error: None,
             created_at: Utc::now(),
             withdrawals: [None, None, None],
@@ -264,7 +262,6 @@ mod tests {
         let updated = store
             .update(&deposit.id, |d| {
                 d.status = ZkDepositStatus::Confirmed;
-                d.deposit_tx = Some("sig".into());
             })
             .await
             .unwrap();

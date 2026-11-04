@@ -80,9 +80,9 @@ it-surfpool *test_args:
 _it-tests *test_args:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --test it_smoke -- --ignored {{test_args}}
+    cargo test --test 00-it-smoke -- --ignored {{test_args}}
     tests=()
-    for t in it_deposit it_withdraw; do
+    for t in 01-it-deposit 02-it-withdraw; do
         [[ -f "tests/integration_tests/$t.rs" ]] && tests+=(--test "$t")
     done
     if (( ${#tests[@]} )); then

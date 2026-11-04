@@ -7,7 +7,7 @@
 //! client must not outlive the runtime it was built in). The pool owner is a fixed test key,
 //! so every test binary can sign owner-only instructions (pause / unpause).
 
-use std::{env, future::IntoFuture, sync::Arc, time::Duration};
+use std::{env, fs, future::IntoFuture, path::Path, sync::Arc, time::Duration};
 
 use super::{admin_ixs, mock_failing_rpc_sender::MockFailingRpcSender};
 use axum::http::StatusCode;
@@ -17,7 +17,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::{nonblocking::rpc_client::RpcClient, rpc_client::RpcClientConfig};
 use solana_rpc_client_api::request::RpcRequest;
 use solana_signer::Signer;
-use tempfile::TempDir;
 use tokio::net::TcpListener;
 use zk_shielded_pool_client::{
     app,
@@ -31,6 +30,9 @@ use zk_shielded_pool_client::{
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_WS_URL: &str = "ws://127.0.0.1:8900";
+
+/// Zk deposit data of the Surfpool tests, kept for inspection. It holds the secret `s`, so `.gitignore` lists this path.
+pub const IT_ZK_DEPOSIT_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/tmp/data");
 
 /// Throwaway key that initializes the pool on a surfnet and so becomes its owner.
 const POOL_OWNER_KEY_JSON: &str =
@@ -168,20 +170,28 @@ impl SurfnetEnv {
         ))
     }
 
-    pub async fn start_server(&self) -> ZkPoolClientTestServer {
-        self.start_server_with_rpc(self.rpc.clone()).await
+    pub async fn start_server(&self, test_name: &str) -> ZkPoolClientTestServer {
+        self.start_server_with_rpc(test_name, self.rpc.clone())
+            .await
     }
 
     /// Starts the real server (`app()`, the same router `main.rs` serves) on a free local port,
     /// against the surfnet: one fresh, funded deposit wallet and one withdraw wallet, zk deposit
-    /// data in a temp dir (kept alive by the returned `ZkPoolClientTestServer`).
+    /// data in `IT_ZK_DEPOSIT_DATA_DIR/<test_name>`, so it shows what each test stored. Each test
+    /// starts one server. The folder is emptied first, because a filtered run skips the smoke
+    /// test's cleanup, and tests count the stored files.
     pub async fn start_server_with_rpc(
         &self,
+        test_name: &str,
         server_rpc: Arc<RpcClient>,
     ) -> ZkPoolClientTestServer {
         let deposit_wallet = self.create_funded_keypair(50 * LAMPORTS_PER_SOL).await;
         let withdraw_wallet = self.create_funded_keypair(5 * LAMPORTS_PER_SOL).await;
-        let zk_deposit_data_dir = tempfile::tempdir().unwrap();
+        let zk_deposit_data_dir = Path::new(IT_ZK_DEPOSIT_DATA_DIR).join(test_name);
+
+        if zk_deposit_data_dir.exists() {
+            fs::remove_dir_all(&zk_deposit_data_dir).unwrap();
+        }
 
         // mocked config for the server
         let config = Config {
@@ -191,7 +201,7 @@ impl SurfnetEnv {
             program_id: ID,
             deposit_wallet_keys: vec![Arc::new(deposit_wallet)],
             withdraw_wallet_keys: vec![Arc::new(withdraw_wallet)],
-            zk_deposit_data_dir: zk_deposit_data_dir.path().to_path_buf(),
+            zk_deposit_data_dir,
         };
         let mut state = AppState::new(config).unwrap();
         state.rpc = server_rpc;
@@ -207,7 +217,6 @@ impl SurfnetEnv {
             state,
             base_url,
             client: reqwest::Client::new(),
-            _zk_deposit_data_dir: zk_deposit_data_dir,
         }
     }
 }
@@ -218,7 +227,6 @@ pub struct ZkPoolClientTestServer {
     /// e.g. `http://127.0.0.1:54321`
     pub base_url: String,
     client: reqwest::Client,
-    _zk_deposit_data_dir: TempDir,
 }
 
 impl ZkPoolClientTestServer {

@@ -3,12 +3,18 @@
 //! Same shape as `signed_v0_tx` / `send_tx_expect_ok` in r3-session-keys, but async and against
 //! RPC. `compile_v0` has no RPC call, so LiteSVM tests use it too.
 
+use anyhow::format_err;
+use serde_json::json;
 use solana_hash::Hash;
 use solana_instruction::{Instruction, error::InstructionError};
 use solana_keypair::Keypair;
 use solana_message::{VersionedMessage, v0};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_rpc_client_api::{client_error::Error as ClientError, config::RpcTransactionConfig};
+use solana_rpc_client_api::{
+    client_error::{Error as ClientError, ErrorKind},
+    config::RpcTransactionConfig,
+    request::RpcRequest,
+};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
@@ -17,7 +23,7 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
 };
 use tokio::time::sleep;
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::{
     constants::{GET_TRANSACTION_ATTEMPTS, GET_TRANSACTION_RETRY_DELAY},
@@ -33,12 +39,13 @@ pub fn compile_v0(
     blockhash: Hash,
 ) -> RequestResult<VersionedTransaction> {
     let msg = v0::Message::try_compile(&payer.pubkey(), ixs, &[] /* no LUTs */, blockhash)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("compile v0 message: {e}")))?;
+        .map_err(|e| AppError::Internal(format_err!("compile v0 message: {e}")))?;
     VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer])
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("sign v0 transaction: {e}")))
+        .map_err(|e| AppError::Internal(format_err!("sign v0 transaction: {e}")))
 }
 
-/// Send a V0 transaction and wait for the RPC client's commitment (`RPC_COMMITMENT`).
+/// Sign, send and wait for the RPC client's commitment (`RPC_COMMITMENT`). A failed send logs the
+/// signature, because the tx may still have landed.
 pub async fn send_v0(
     rpc: &RpcClient,
     payer: &Keypair,
@@ -46,9 +53,15 @@ pub async fn send_v0(
 ) -> RequestResult<Signature> {
     let blockhash = rpc.get_latest_blockhash().await.map_err(create_rpc_error)?;
     let tx = compile_v0(payer, ixs, blockhash)?;
+    let tx_signature = tx.signatures[0];
+
     rpc.send_and_confirm_transaction(&tx)
         .await
-        .map_err(create_rpc_error)
+        .map_err(|send_error| {
+            let send_error = create_rpc_error(send_error);
+            error!(%tx_signature, %send_error, "V0 tx send failed");
+            send_error
+        })
 }
 
 /// Log messages of a confirmed transaction, retrying `get_transaction` a bounded number of times.
@@ -56,21 +69,42 @@ pub async fn transaction_logs(
     rpc: &RpcClient,
     signature: &Signature,
 ) -> RequestResult<Vec<String>> {
-    let config = RpcTransactionConfig {
+    let tx = fetch_transaction_with_retry(rpc, signature, create_transaction_config(rpc)).await?;
+    parse_transaction_logs(signature, tx)
+}
+
+/// DEV NOTE: Sends the same `getTransaction` request as `get_transaction_with_config`, but returns `Ok(None)` when the tx is not found.
+/// When the tx is not found, the node returns `null`, and `get_transaction_with_config` turns that into an error that looks like any failed call.
+/// Reconcile needs Option to have tx "not found" as a result, so it can keep `Pending` status
+pub async fn fetch_transaction(
+    rpc: &RpcClient,
+    signature: &Signature,
+) -> RequestResult<Option<EncodedConfirmedTransactionWithStatusMeta>> {
+    rpc.send(
+        RpcRequest::GetTransaction,
+        json!([signature.to_string(), create_transaction_config(rpc)]),
+    )
+    .await
+    .map_err(create_rpc_error)
+}
+
+pub fn parse_transaction_logs(
+    signature: &Signature,
+    tx: EncodedConfirmedTransactionWithStatusMeta,
+) -> RequestResult<Vec<String>> {
+    tx.transaction
+        .meta
+        .and_then(|meta| Option::<Vec<String>>::from(meta.log_messages))
+        .ok_or_else(|| AppError::RpcError(format!("transaction {signature} has no logs")))
+}
+
+fn create_transaction_config(rpc: &RpcClient) -> RpcTransactionConfig {
+    RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Base64),
         commitment: Some(rpc.commitment()),
         // Required: without it the RPC rejects V0 transactions.
         max_supported_transaction_version: Some(0),
-    };
-    let tx = fetch_transaction_with_retry(rpc, signature, config).await?;
-
-    let logs = tx
-        .transaction
-        .meta
-        .and_then(|meta| Option::<Vec<String>>::from(meta.log_messages))
-        .ok_or_else(|| AppError::RpcError(format!("transaction {signature} has no logs")))?;
-
-    Ok(logs)
+    }
 }
 
 async fn fetch_transaction_with_retry(
@@ -94,12 +128,20 @@ async fn fetch_transaction_with_retry(
     }
 }
 
-/// Preflight and on-chain failures -> `AppError::TxRejected`, naming the program error when there
-/// is one. Every other failure -> `AppError::RpcError`: the tx may still have landed.
+// The error text drops the RPC URL, because the URL can hold a provider API key.
 pub fn create_rpc_error(error: ClientError) -> AppError {
-    match error.get_transaction_error() {
-        Some(tx_error) => AppError::TxRejected(parse_transaction_error(&tx_error)),
-        None => AppError::RpcError(error.to_string()),
+    // The tx failed preflight or failed on chain.
+    if let Some(tx_error) = error.get_transaction_error() {
+        return AppError::TxRejected(parse_transaction_error(&tx_error));
+    }
+
+    match *error.kind {
+        // call to rpc node failed, it could be: unreachable, timed out, returned a non-2xx status, or its response body could not be read as JSON.
+        ErrorKind::Reqwest(reqwest_error) => {
+            AppError::RpcError(reqwest_error.without_url().to_string())
+        }
+        // Any other failure, e.g. the node answered with a JSON-RPC error.
+        other_error_kind => AppError::RpcError(other_error_kind.to_string()),
     }
 }
 
@@ -119,7 +161,7 @@ pub fn parse_transaction_error(error: &TransactionError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use solana_rpc_client_api::{client_error::ErrorKind, request::RpcError};
+    use solana_rpc_client_api::request::RpcError;
 
     use super::*;
 

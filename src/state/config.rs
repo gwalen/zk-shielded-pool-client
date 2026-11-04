@@ -1,7 +1,7 @@
 use std::{collections::HashSet, env, fmt, path::PathBuf, str::FromStr, sync::Arc};
 
 use anchor_client::Cluster;
-use anyhow::anyhow;
+use anyhow::format_err;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -51,10 +51,10 @@ impl Config {
         let program_id_raw =
             Self::optional(&get, "PROGRAM_ID").unwrap_or_else(|| DEFAULT_PROGRAM_ID.into());
         let program_id = Pubkey::from_str(program_id_raw.trim())
-            .map_err(|_| anyhow!("PROGRAM_ID is not a valid public key: {program_id_raw}"))?;
+            .map_err(|_| format_err!("PROGRAM_ID is not a valid public key: {program_id_raw}"))?;
         // Instructions go to the IDL address. A different PROGRAM_ID would only mislead.
         if program_id != program_helpers::ID {
-            return Err(anyhow!(
+            return Err(format_err!(
                 "PROGRAM_ID {program_id} differs from the IDL address {}; run scripts/sync-idl.sh",
                 program_helpers::ID
             ));
@@ -86,7 +86,7 @@ impl Config {
     }
 
     fn required(get: &impl Fn(&str) -> Option<String>, name: &str) -> RawResult<String> {
-        get(name).ok_or_else(|| anyhow!("missing {name} in .env"))
+        get(name).ok_or_else(|| format_err!("missing {name} in .env"))
     }
 
     fn optional(get: &impl Fn(&str) -> Option<String>, name: &str) -> Option<String> {
@@ -126,7 +126,9 @@ impl fmt::Debug for Redacted {
 fn derive_ws_url(rpc_url: &str) -> RawResult<String> {
     match Cluster::from_str(rpc_url) {
         Ok(Cluster::Custom(_, ws_url)) => Ok(ws_url),
-        _ => Err(anyhow!("SOLANA_RPC_URL must be an http(s) url: {rpc_url}")),
+        _ => Err(format_err!(
+            "SOLANA_RPC_URL must be an http(s) url: {rpc_url}"
+        )),
     }
 }
 
@@ -144,11 +146,11 @@ fn parse_wallet_keys(var: &str, raw: &str) -> RawResult<Vec<Arc<Keypair>>> {
         let n = position + 1;
         let bytes = bs58::decode(entry)
             .into_vec()
-            .map_err(|_| anyhow!("{var}: key #{n} is not valid base58"))?;
+            .map_err(|_| format_err!("{var}: key #{n} is not valid base58"))?;
         let keypair = Keypair::try_from(bytes.as_slice())
-            .map_err(|_| anyhow!("{var}: key #{n} is not a valid 64-byte keypair"))?;
+            .map_err(|_| format_err!("{var}: key #{n} is not a valid 64-byte keypair"))?;
         if !seen.insert(keypair.pubkey()) {
-            return Err(anyhow!(
+            return Err(format_err!(
                 "{var}: wallet {} is listed twice",
                 keypair.pubkey()
             ));
@@ -156,7 +158,7 @@ fn parse_wallet_keys(var: &str, raw: &str) -> RawResult<Vec<Arc<Keypair>>> {
         keys.push(Arc::new(keypair));
     }
     if keys.is_empty() {
-        return Err(anyhow!("{var} must hold at least one key"));
+        return Err(format_err!("{var} must hold at least one key"));
     }
     Ok(keys)
 }
@@ -169,7 +171,7 @@ fn check_disjoint(deposit: &[Arc<Keypair>], withdraw: &[Arc<Keypair>]) -> RawRes
         .map(|k| k.pubkey())
         .find(|pubkey| deposit.contains(pubkey))
     {
-        Some(pubkey) => Err(anyhow!(
+        Some(pubkey) => Err(format_err!(
             "wallet {pubkey} is in both {DEPOSIT_KEYS_VAR} and {WITHDRAW_KEYS_VAR}"
         )),
         None => Ok(()),

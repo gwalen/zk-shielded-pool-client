@@ -78,9 +78,9 @@ name = "litesvm_program"
 path = "tests/unit_tests/litesvm_program.rs"
 
 [[test]]
-name = "it_smoke"
-path = "tests/integration_tests/it_smoke.rs"
+name = "00-it-smoke"
+path = "tests/integration_tests/00-it-smoke.rs"
 
 [[test]]
-name = "it_deposit"
-path = "tests/integration_tests/it_deposit.rs"
+name = "01-it-deposit"
+path = "tests/integration_tests/01-it-deposit.rs"

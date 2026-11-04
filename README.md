@@ -20,19 +20,21 @@ deposit wallet, the two are linked on chain. Fund withdraw wallets from an unrel
 
 ## Tests
 
-- `cargo test`: unit tests and LiteSVM tests against `../pool-anchor-v2-rewrite/target/deploy/zk_shielded_pool_solana.so`
-  (`ZK_POOL_SO` to override; skipped with a message if missing). No network.
-- `just it`: starts Surfpool (mainnet fork, mainnet feature set), deploys the program with the `deployment` runbook,
-  runs the Rust integration tests (`tests/integration_tests/it_*.rs`), and stops Surfpool.
-  - `SURFPOOL_OFFLINE=1 just it`: no mainnet fork (fast, no network).
-  - `SURFPOOL_FEATURES=<pubkey,...> just it`: extra feature gates. **Not a mainnet check.**
-    The current program needs `sol_big_mod_exp`, which mainnet does not have active, so the deploy fails without
-    `SURFPOOL_FEATURES=EBq48m8irRKuE7ZnMTLvLg2UuGSqhe8s8oMqnmja1fJw`.
-    That gate only unblocks the deploy (initialize/deposit). The program targets the Agave 4.3 syscall
-    (SIMD-0529, gate `expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg`, little-endian). Surfpool 1.5 runs the older
-    big-endian version under `EBq48m…` and does not know `expH2pp…`, so **withdraw results on Surfpool are invalid**.
-- `just it --nocapture`: prints test output.
+A change isn't checked until both `cargo test` and `just it` pass.
 
+- `cargo test`: unit tests and LiteSVM tests against `../pool-anchor-v2-rewrite/target/deploy/zk_shielded_pool_solana.so`
+  (`ZK_POOL_SO` to override; skipped with a message if missing). No network. The Surfpool tests show as ignored here.
+- `just it`: starts its own Surfpool, so no node has to be running. It deploys the program with the `deployment`
+  runbook, runs the Rust integration tests (`tests/integration_tests/*-it-*.rs`), and stops Surfpool. It needs
+  Surfpool >= 1.7.0 and the built program in `../pool-anchor-v2-rewrite`. Each test keeps its zk deposit data in
+  `tests/tmp/data/<test name>`, emptied when that test starts. The smoke test empties `tests/tmp/data`.
+  - By default it runs offline, with no mainnet fork, and turns on the `sol_big_mod_exp` feature the withdraw verifier
+    needs (SIMD-0529, gate `expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg`). The feature isn't active on mainnet or
+    devnet, so this is **not a mainnet check**. Surfpool 1.7.0 implements this syscall, so withdraw tests belong on
+    Surfpool too. The defaults are at the top of the `justfile`.
+  - `SURFPOOL_OFFLINE= just it`: forks mainnet instead of running offline. Needs network.
+  - `SURFPOOL_FEATURES=<pubkey,...> just it`: replaces the default feature gates. Without `expH2pp…` the deploy fails.
+- `just it --nocapture`: prints test output.
 - `just surfpool` + `just it-surfpool`: same tests against a surfnet you keep running.
 
 
@@ -62,3 +64,12 @@ curl -i -X POST localhost:3000/deposit \
   The response holds `deposit_id`, `tx_signature`, `total_amount`, `new_root` (hex LE) and the full `zk_deposit_data`,
   including the secret `secret_s`. The same zk deposit data is stored in `ZK_DEPOSIT_DATA`. Keep it private: it is what
   withdraws the funds.
+
+  If the tx was sent but its outcome is unknown, the response is a 500 with `error`, `deposit_id`, `tx_signature` and
+  `status: "pending"`. The tx may have landed, so check it with the reconcile endpoint before you retry.
+
+- /deposit/{deposit_id}/reconcile: checks a `pending` deposit tx on chain. `confirmed` and `failed` are final and come
+  back as stored. The response holds `deposit_id`, `status`, `tx_signature` and `error`. An unknown id gets a 404.
+```
+curl -i -X POST localhost:3000/deposit/<deposit_id>/reconcile
+```

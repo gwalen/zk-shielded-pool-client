@@ -5,7 +5,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use solana_signature::Signature;
 use tracing::{error, warn};
+
+use crate::zk::zk_deposit_data::ZkDepositStatus;
 
 /// Result for code that can run while serving an HTTP request: handlers, services, RPC/tx helpers
 pub type RequestResult<T> = Result<T, AppError>;
@@ -24,6 +27,14 @@ pub enum AppError {
     /// Preflight or on-chain failure: the tx did not take effect.
     #[error("Transaction rejected: {0}")]
     TxRejected(String),
+
+    /// The deposit tx was sent but its outcome is unknown: it may have landed.
+    #[error("Deposit {deposit_id} is pending, tx {tx_signature}: {reason}")]
+    DepositPending {
+        deposit_id: String,
+        tx_signature: Signature,
+        reason: String,
+    },
 
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -47,9 +58,37 @@ pub struct ErrorBody {
     pub error: String,
 }
 
+// what the client needs to check a deposit whose tx may have landed
+#[derive(Debug, Serialize)]
+struct DepositPendingBody {
+    error: String,
+    deposit_id: String,
+    tx_signature: String,
+    status: ZkDepositStatus,
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, public_error_msg) = match self {
+            AppError::DepositPending {
+                deposit_id,
+                tx_signature,
+                reason,
+            } => {
+                error!(%deposit_id, %tx_signature, "Deposit is pending: {reason:?}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DepositPendingBody {
+                        error: format!(
+                            "deposit outcome unknown, do not retry: check it with POST /deposit/{deposit_id}/reconcile"
+                        ),
+                        deposit_id,
+                        tx_signature: tx_signature.to_string(),
+                        status: ZkDepositStatus::Pending,
+                    }),
+                )
+                    .into_response();
+            }
             AppError::BadRequest(msg) => {
                 warn!("Bad request: {msg:?}");
                 (StatusCode::BAD_REQUEST, msg)

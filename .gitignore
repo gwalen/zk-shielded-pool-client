@@ -12,6 +12,6 @@ docs-prv/
 /data/
 /tests/tmp/data/
 # KZG params (8 MB), fetched by scripts/fetch-srs.sh
-resources/*.srs
+/resources/kzg_bn254_16.srs
 # Surfpool runtime logs
 .surfpool/

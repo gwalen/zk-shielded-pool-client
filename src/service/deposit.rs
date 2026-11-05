@@ -24,8 +24,8 @@ use crate::{
         accounts_helpers::fetch_program_config,
         events::parse_deposit_done_events,
         tx_builder::{
-            compile_v0, create_rpc_error, fetch_transaction, parse_transaction_error,
-            parse_transaction_logs, transaction_logs,
+            compile_v0, create_rpc_error, fetch_transaction, parse_transaction_logs,
+            transaction_logs,
         },
     },
     state::AppState,
@@ -217,8 +217,7 @@ pub async fn reconcile_deposit(state: &AppState, deposit_id: &str) -> RequestRes
 
     match tx_error_opt {
         Some(tx_error) => {
-            let rejected_error =
-                AppError::TxRejected(parse_transaction_error(&TransactionError::from(tx_error)));
+            let rejected_error = AppError::TxRejected(TransactionError::from(tx_error));
 
             state
                 .zk_deposit_data_writer
@@ -406,7 +405,7 @@ mod tests {
             commitments.create_pending_zk_deposit_data(&request, &Signature::default());
 
         let mut rejected_zk_deposit_data = pending_zk_deposit_data.clone();
-        let rejected_error = AppError::TxRejected("instruction 0 failed".into());
+        let rejected_error = AppError::TxRejected(TransactionError::AccountNotFound);
         record_send_error(&mut rejected_zk_deposit_data, &rejected_error);
         assert_eq!(rejected_zk_deposit_data.status, ZkDepositStatus::Failed);
         assert_eq!(

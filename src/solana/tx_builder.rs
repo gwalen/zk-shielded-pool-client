@@ -132,7 +132,7 @@ async fn fetch_transaction_with_retry(
 pub fn create_rpc_error(error: ClientError) -> AppError {
     // The tx failed preflight or failed on chain.
     if let Some(tx_error) = error.get_transaction_error() {
-        return AppError::TxRejected(parse_transaction_error(&tx_error));
+        return AppError::TxRejected(tx_error);
     }
 
     match *error.kind {

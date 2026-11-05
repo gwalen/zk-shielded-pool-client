@@ -12,11 +12,12 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 
-use super::program_helpers::{
-    ID, PublicInputs, accounts, instruction, derive_nullifier_pda, derive_program_config_pda, derive_proof_pda,
-    derive_root_registry_pda, derive_vault_pda,
-};
 use super::constants::RPC_COMMITMENT;
+use super::program_helpers::{
+    PublicInputs, ZK_SHIELDED_POOL_PROGRAM_ID, accounts, derive_nullifier_pda,
+    derive_program_config_pda, derive_proof_pda, derive_root_registry_pda, derive_vault_pda,
+    instruction,
+};
 use crate::app_error::RawResult;
 
 const SYSTEM_PROGRAM_ID: Pubkey = solana_system_interface::program::ID;
@@ -33,13 +34,18 @@ impl ZkPoolProgram {
         let payer_placeholder = Keypair::new();
         let client = Client::new_with_options(cluster, Arc::new(payer_placeholder), RPC_COMMITMENT);
         let program = client
-            .program(ID)
+            .program(ZK_SHIELDED_POOL_PROGRAM_ID)
             .map_err(|e| format_err!("anchor client: {e}"))?;
         Ok(Self { program })
     }
 
     /// `user_commitment_hash` is the LE bytes of the user commitment (`shielded_pool_circuit::circuit::utils::fr_to_le_bytes`).
-    pub fn deposit(&self, sender: Pubkey, user_commitment_hash: [u8; 32], total_amount: u64) -> Instruction {
+    pub fn deposit(
+        &self,
+        sender: Pubkey,
+        user_commitment_hash: [u8; 32],
+        total_amount: u64,
+    ) -> Instruction {
         self.program
             .request()
             .accounts(accounts::Deposit {
@@ -49,7 +55,10 @@ impl ZkPoolProgram {
                 roots_registry: derive_root_registry_pda(),
                 system_program: SYSTEM_PROGRAM_ID,
             })
-            .args(instruction::Deposit { user_commitment_hash, total_amount })
+            .args(instruction::Deposit {
+                user_commitment_hash,
+                total_amount,
+            })
             .instructions()
             .remove(0)
     }
@@ -70,7 +79,12 @@ impl ZkPoolProgram {
                 proof_account: derive_proof_pda(&sender, &proof_hash),
                 system_program: SYSTEM_PROGRAM_ID,
             })
-            .args(instruction::UploadProof { _proof_hash: proof_hash, part, proof_final_len, proof })
+            .args(instruction::UploadProof {
+                _proof_hash: proof_hash,
+                part,
+                proof_final_len,
+                proof,
+            })
             .instructions()
             .remove(0)
     }
@@ -97,7 +111,10 @@ impl ZkPoolProgram {
                 nullifier_account,
                 system_program: SYSTEM_PROGRAM_ID,
             })
-            .args(instruction::Withdraw { proof_hash, public_inputs })
+            .args(instruction::Withdraw {
+                proof_hash,
+                public_inputs,
+            })
             .instructions()
             .remove(0)
     }
@@ -105,8 +122,13 @@ impl ZkPoolProgram {
     pub fn close_proof(&self, sender: Pubkey, proof_hash: [u8; 32]) -> Instruction {
         self.program
             .request()
-            .accounts(accounts::CloseProof { sender, proof_account: derive_proof_pda(&sender, &proof_hash) })
-            .args(instruction::CloseProof { _proof_hash: proof_hash })
+            .accounts(accounts::CloseProof {
+                sender,
+                proof_account: derive_proof_pda(&sender, &proof_hash),
+            })
+            .args(instruction::CloseProof {
+                _proof_hash: proof_hash,
+            })
             .instructions()
             .remove(0)
     }

@@ -6,9 +6,10 @@ use axum::{
 };
 use serde::Serialize;
 use solana_signature::Signature;
+use solana_transaction_error::TransactionError;
 use tracing::{error, warn};
 
-use crate::zk::zk_deposit_data::ZkDepositStatus;
+use crate::{solana::tx_builder::parse_transaction_error, zk::zk_deposit_data::ZkDepositStatus};
 
 /// Result for code that can run while serving an HTTP request: handlers, services, RPC/tx helpers
 pub type RequestResult<T> = Result<T, AppError>;
@@ -25,8 +26,8 @@ pub enum AppError {
     RpcError(String),
 
     /// Preflight or on-chain failure: the tx did not take effect.
-    #[error("Transaction rejected: {0}")]
-    TxRejected(String),
+    #[error("Transaction rejected: {}", parse_transaction_error(.0))]
+    TxRejected(TransactionError),
 
     /// The deposit tx was sent but its outcome is unknown: it may have landed.
     #[error("Deposit {deposit_id} is pending, tx {tx_signature}: {reason}")]
@@ -98,7 +99,10 @@ impl IntoResponse for AppError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "rpc error".into())
             }
             AppError::TxRejected(tx_error) => {
-                error!("Transaction rejected: {tx_error:?}");
+                error!(
+                    "Transaction rejected: {}",
+                    parse_transaction_error(&tx_error)
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "transaction rejected".into(),
@@ -119,9 +123,10 @@ impl IntoResponse for AppError {
                 warn!("Not found: {msg:?}");
                 (StatusCode::NOT_FOUND, "not found".into())
             }
+            // The message names only public values: deposit id, status, withdrawal step.
             AppError::Conflict(msg) => {
                 warn!("Conflict: {msg:?}");
-                (StatusCode::CONFLICT, "conflict".into())
+                (StatusCode::CONFLICT, msg)
             }
             AppError::ProverError(prover_error) => {
                 error!("Prover error: {prover_error:?}");

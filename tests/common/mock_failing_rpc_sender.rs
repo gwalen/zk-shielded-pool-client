@@ -42,7 +42,7 @@ impl RpcSender for MockFailingRpcSender {
                     failures_left.checked_sub(1)
                 })
                 .is_ok();
-        
+
             if failures_left_bigger_than_zero {
                 return Err(ErrorKind::Custom(SIMULATED_RPC_FAILURE.into()).into());
             }

@@ -1,13 +1,13 @@
-use std::thread;
+use std::{sync::Arc, thread, time::Instant};
 
-use tokio::{net::TcpListener, runtime::Handle};
+use tokio::{net::TcpListener, runtime::Handle, task::spawn_blocking};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zk_shielded_pool_client::{
     app,
     state::{AppState, Config},
+    zk::prover::ProvingContext,
 };
-
 
 #[tokio::main]
 async fn main() {
@@ -24,7 +24,17 @@ async fn main() {
     let config = Config::from_env().expect("invalid configuration");
     info!(?config, "Config loaded"); // as a separate field, keys are redacted
 
-    let app_state = AppState::new(config).expect("failed to build app state");
+    let srs_path = config.srs_path.clone();
+    let prover_load_started = Instant::now();
+
+    let prover = spawn_blocking(move || ProvingContext::load(&srs_path))
+        .await
+        .expect("prover load task panicked")
+        .expect("failed to load the prover");
+
+    info!(elapsed = ?prover_load_started.elapsed(), "Prover loaded");
+
+    let app_state = AppState::new(config, Arc::new(prover)).expect("failed to build app state");
     for pubkey in app_state.deposit_wallets.pubkeys() {
         info!(%pubkey, "Deposit wallet");
     }
@@ -46,5 +56,7 @@ async fn main() {
         .expect("failed to bind 127.0.0.1:3000");
     info!("Listening on http://{}", listener.local_addr().unwrap());
 
-    axum::serve(listener, app(app_state)).await.expect("server error");
+    axum::serve(listener, app(app_state))
+        .await
+        .expect("server error");
 }

@@ -5,7 +5,10 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use super::accounts::{ProgramConfigView, RootRegistryView};
-use super::program_helpers::{derive_program_config_pda, derive_root_registry_pda};
+use super::program_helpers::{
+    Nullifier, ZK_SHIELDED_POOL_PROGRAM_ID, derive_program_config_pda, derive_root_registry_pda,
+};
+use super::tx_builder::create_rpc_error;
 use crate::app_error::{AppError, RequestResult};
 
 /// `None` if the pool is not initialized yet.
@@ -26,15 +29,56 @@ pub async fn fetch_root_registry(rpc: &RpcClient) -> RequestResult<Option<RootRe
         .transpose()
 }
 
-/// Whether an account exists (e.g. a nullifier PDA, which means that step was withdrawn).
-pub async fn account_exists(rpc: &RpcClient, address: &Pubkey) -> RequestResult<bool> {
-    Ok(fetch_account_data(rpc, address).await?.is_some())
+/// The accounts a withdrawal checks before proving.
+pub struct WithdrawalAccounts {
+    pub nullifier_spent: bool,
+    /// `None` if the pool is not initialized yet.
+    pub program_config_account_view: Option<ProgramConfigView>,
 }
 
-async fn fetch_account_data(
+/// The nullifier and program config accounts in one RPC call.
+pub async fn fetch_withdrawal_accounts(
     rpc: &RpcClient,
-    address: &Pubkey,
-) -> RequestResult<Option<Vec<u8>>> {
+    nullifier_pda: &Pubkey,
+) -> RequestResult<WithdrawalAccounts> {
+    let withdrawal_accounts = rpc
+        .get_multiple_accounts_with_commitment(
+            &[*nullifier_pda, derive_program_config_pda()],
+            rpc.commitment(),
+        )
+        .await
+        .map_err(create_rpc_error)?
+        .value;
+
+    let [nullifier_account, program_config_account] = &withdrawal_accounts[..] else {
+        return Err(AppError::RpcError(format!(
+            "get_multiple_accounts returned {} accounts for 2 addresses",
+            withdrawal_accounts.len()
+        )));
+    };
+
+    let program_config_account_view = program_config_account
+        .as_ref()
+        .map(|account| ProgramConfigView::decode(&account.data))
+        .transpose()?;
+
+    // Anyone can send lamports to the PDA, to block this kind of DDOS attack
+    // we check if the PDA is owned by the our program and if it correctly deserializes to a `Nullifier`
+    let nullifier_spent = match nullifier_account {
+        Some(account) if account.owner == ZK_SHIELDED_POOL_PROGRAM_ID => {
+            decode_account::<Nullifier>(&account.data, "Nullifier")?;
+            true
+        }
+        _ => false,
+    };
+
+    Ok(WithdrawalAccounts {
+        nullifier_spent,
+        program_config_account_view,
+    })
+}
+
+async fn fetch_account_data(rpc: &RpcClient, address: &Pubkey) -> RequestResult<Option<Vec<u8>>> {
     let response = rpc
         .get_account_with_commitment(address, rpc.commitment())
         .await

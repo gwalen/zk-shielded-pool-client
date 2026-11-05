@@ -7,9 +7,15 @@
 //! client must not outlive the runtime it was built in). The pool owner is a fixed test key,
 //! so every test binary can sign owner-only instructions (pause / unpause).
 
-use std::{env, fs, future::IntoFuture, path::Path, sync::Arc, time::Duration};
+use std::{
+    env, fs,
+    future::IntoFuture,
+    path::Path,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
-use super::{admin_ixs, mock_failing_rpc_sender::MockFailingRpcSender};
+use super::{SRS_PATH, admin_ixs, mock_failing_rpc_sender::MockFailingRpcSender};
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 use solana_keypair::Keypair;
@@ -22,9 +28,11 @@ use zk_shielded_pool_client::{
     app,
     solana::{
         accounts_helpers::fetch_program_config, constants::RPC_COMMITMENT,
-        instructions::ZkPoolProgram, program_helpers::ID, tx_builder::send_v0,
+        instructions::ZkPoolProgram, program_helpers::ZK_SHIELDED_POOL_PROGRAM_ID,
+        tx_builder::send_v0,
     },
     state::{AppState, Config},
+    zk::prover::ProvingContext,
 };
 
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -37,6 +45,11 @@ pub const IT_ZK_DEPOSIT_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/t
 /// Throwaway key that initializes the pool on a surfnet and so becomes its owner.
 const POOL_OWNER_KEY_JSON: &str =
     include_str!("../fixtures/keys/tmpo2qzmuksinGFdeEcYCySxtc2kwhzAxWy4y65dLcr.json");
+
+/// Keygen takes seconds and gives the same keys every time, so all test servers of a test binary
+/// share one prover. It holds only read-only keys, no state that changes between tests.
+static PROVER: LazyLock<Arc<ProvingContext>> =
+    LazyLock::new(|| Arc::new(ProvingContext::load(Path::new(SRS_PATH)).unwrap()));
 
 pub fn pool_owner() -> Keypair {
     let bytes: Vec<u8> = serde_json::from_str(POOL_OWNER_KEY_JSON).unwrap();
@@ -64,12 +77,16 @@ impl SurfnetEnv {
             panic!("surfnet RPC at {rpc_url} does not answer ({e}); run `just it`");
         }
         let program = rpc
-            .get_account_with_commitment(&ID, RPC_COMMITMENT)
+            .get_account_with_commitment(&ZK_SHIELDED_POOL_PROGRAM_ID, RPC_COMMITMENT)
             .await
-            .unwrap_or_else(|e| panic!("cannot read program account {ID}: {e}"))
+            .unwrap_or_else(|e| {
+                panic!("cannot read program account {ZK_SHIELDED_POOL_PROGRAM_ID}: {e}")
+            })
             .value;
         if !program.is_some_and(|account| account.executable) {
-            panic!("program {ID} is not deployed on {rpc_url}; run `just it`");
+            panic!(
+                "program {ZK_SHIELDED_POOL_PROGRAM_ID} is not deployed on {rpc_url}; run `just it`"
+            );
         }
 
         let pool = ZkPoolProgram::new(anchor_client::Cluster::Custom(
@@ -179,7 +196,7 @@ impl SurfnetEnv {
     /// against the surfnet: one fresh, funded deposit wallet and one withdraw wallet, zk deposit
     /// data in `IT_ZK_DEPOSIT_DATA_DIR/<test_name>`, so it shows what each test stored. Each test
     /// starts one server. The folder is emptied first, because a filtered run skips the smoke
-    /// test's cleanup, and tests count the stored files.
+    /// test's cleanup, and tests count the stored files. Each server loads its own prover.
     pub async fn start_server_with_rpc(
         &self,
         test_name: &str,
@@ -198,12 +215,14 @@ impl SurfnetEnv {
             version: "it".into(),
             solana_rpc_url: self.rpc_url.clone(),
             solana_ws_url: self.ws_url.clone(),
-            program_id: ID,
+            program_id: ZK_SHIELDED_POOL_PROGRAM_ID,
             deposit_wallet_keys: vec![Arc::new(deposit_wallet)],
             withdraw_wallet_keys: vec![Arc::new(withdraw_wallet)],
             zk_deposit_data_dir,
+            srs_path: SRS_PATH.into(),
         };
-        let mut state = AppState::new(config).unwrap();
+
+        let mut state = AppState::new(config, PROVER.clone()).unwrap();
         state.rpc = server_rpc;
 
         // Port 0: the OS picks a free port. The server task stops with the test's runtime.

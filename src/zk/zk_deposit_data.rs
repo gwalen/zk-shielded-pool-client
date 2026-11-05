@@ -24,7 +24,8 @@ pub enum ZkDepositStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithdrawalRecord {
-    pub tx: String,
+    /// Withdraw tx signature; `None` when the nullifier was spent on chain before a recorded withdraw.
+    pub tx: Option<String>,
     /// BE hex, the same bytes as the nullifier PDA seed.
     pub nullifier_hex: String,
     pub at: DateTime<Utc>,
@@ -160,12 +161,16 @@ impl ZkDepositDataWriter {
         Ok(zk_deposit_data)
     }
 
-    /// Ids are hex only, so a request can never point outside `dir`.
+    /// Ids are lowercase hex only, as `create_id` writes them, so a request can never point
+    /// outside `dir` and each deposit has exactly one id.
     fn path(&self, id: &str) -> RequestResult<PathBuf> {
-        let valid = id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
-        if !valid {
+        let is_lowercase_hex = id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+
+        if id.len() != 64 || !is_lowercase_hex {
             return Err(AppError::BadRequest(
-                "deposit id must be 64 hex characters".into(),
+                "deposit id must be 64 lowercase hex characters".into(),
             ));
         }
         Ok(self.dir.join(format!("{id}.json")))
@@ -273,6 +278,22 @@ mod tests {
         assert!(matches!(
             store.get(&missing).await,
             Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// An uppercase id opens the same file on a case-insensitive disk, but it does not match the
+    /// stored id, so `update` would fail after a confirmed withdraw tx.
+    #[tokio::test]
+    async fn get_rejects_uppercase_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ZkDepositDataWriter::new(dir.path()).unwrap();
+        let deposit = create_sample_deposit(0xAB);
+        store.create(&deposit).await.unwrap();
+
+        let uppercase_id = deposit.id.to_uppercase();
+        assert!(matches!(
+            store.get(&uppercase_id).await,
+            Err(AppError::BadRequest(_))
         ));
     }
 

@@ -22,6 +22,12 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 shielded-pool-circuit = { git = "https://github.com/adamsmo/solana-proof-generator", branch = "main" }
 # Field traits (PrimeField::from_repr, Field::random) for the circuit's Fr. Same ff as halo2curves 0.7.
 ff = "0.13"
+# Prover side of the circuit: keygen, create_proof, VK compile and the host GWC verifier.
+# Same repo and branch as the circuit. halo2-base must not use its default `halo2-axiom`
+# feature: the circuit is built on `halo2-pse`, and the two features cannot be on together.
+halo2-base = { git = "https://github.com/adamsmo/solana-proof-generator", branch = "main", default-features = false, features = ["halo2-pse"] }
+halo2-solana-verifier = { git = "https://github.com/adamsmo/solana-proof-generator", branch = "main" }
+halo2-solana-vk-host = { git = "https://github.com/adamsmo/solana-proof-generator", branch = "main" }
 
 # Program interface generated from idls/zk_shielded_pool_solana.json (declare_program!).
 # Same source as the program. `async` is required: without it `Program` owns its own
@@ -57,6 +63,8 @@ hex = "0.4"
 bs58 = "0.5"
 
 [dev-dependencies]
+# Feature ids for the LiteSVM feature set (sol_big_mod_exp). Same version litesvm uses.
+agave-feature-set = "4.3"
 async-trait = "0.1"
 litesvm = "0.18"
 tempfile = "3"
@@ -84,3 +92,7 @@ path = "tests/integration_tests/00-it-smoke.rs"
 [[test]]
 name = "01-it-deposit"
 path = "tests/integration_tests/01-it-deposit.rs"
+
+[[test]]
+name = "02-it-withdraw"
+path = "tests/integration_tests/02-it-withdraw.rs"

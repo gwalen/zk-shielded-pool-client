@@ -7198,6 +7198,7 @@ dependencies = [
 name = "zk-shielded-pool-client"
 version = "0.1.0"
 dependencies = [
+ "agave-feature-set",
  "anchor-client",
  "anchor-lang",
  "anyhow",
@@ -7209,6 +7210,9 @@ dependencies = [
  "cron",
  "dotenvy",
  "ff",
+ "halo2-base",
+ "halo2-solana-verifier",
+ "halo2-solana-vk-host",
  "hex",
  "litesvm",
  "rand 0.8.8",

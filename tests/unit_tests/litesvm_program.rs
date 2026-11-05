@@ -8,31 +8,49 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use std::{array, env, fs, path::PathBuf};
+use std::{
+    array, env, fs,
+    path::{Path, PathBuf},
+};
 
+use agave_feature_set::enable_big_mod_exp_syscall;
 use anchor_client::Cluster;
-use common::admin_ixs;
+use common::{SRS_PATH, admin_ixs};
 use litesvm::{
     LiteSVM,
     types::{FailedTransactionMetadata, TransactionMetadata},
 };
+use sha3::{Digest, Keccak256};
+use shielded_pool_circuit::{
+    circuit::{
+        full_circuit::{deposit_commitment_hash, user_commitment_hash},
+        prover::{
+            FIXTURE_CHUNKS, FIXTURE_DEST_PUBKEY, FIXTURE_TOTAL_AMOUNT, build_fixture_input_for_step,
+        },
+        utils::{convert_pubkey_32bytes_to_fr, fr_to_le_bytes},
+    },
+    imt::imt_utils,
+};
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use shielded_pool_circuit::{circuit::{
-    full_circuit::{deposit_commitment_hash, user_commitment_hash},
-    utils::{convert_pubkey_32bytes_to_fr, fr_to_le_bytes},
-}, imt::imt_utils};
 use solana_signer::Signer;
 use zk_shielded_pool_client::{
     solana::{
         accounts::{ProgramConfigView, RootRegistryView},
         events::parse_deposit_done_events,
-        instructions::ZkPoolProgram,
-        program_helpers::{ID, derive_program_config_pda, derive_root_registry_pda, derive_vault_pda},
+        instructions::{ZkPoolProgram, compute_budget_ixs},
+        program_helpers::{
+            PROOF_UPLOAD_PART0_LEN, PublicInputs, WITHDRAW_CU_LIMIT, WITHDRAW_HEAP_BYTES,
+            ZK_SHIELDED_POOL_PROGRAM_ID, derive_nullifier_pda, derive_program_config_pda,
+            derive_root_registry_pda, derive_vault_pda,
+        },
         tx_builder::{self, compile_v0},
     },
-    zk::field::{CHUNKS, Fr, TREE_DEPTH, create_empty_tree_root},
+    zk::{
+        field::{CHUNKS, Fr, TREE_DEPTH, create_empty_tree_root},
+        prover::ProvingContext,
+    },
 };
 
 const DEFAULT_SO: &str = "../pool-anchor-v2-rewrite/target/deploy/zk_shielded_pool_solana.so";
@@ -59,8 +77,12 @@ impl Env {
             return None;
         };
 
-        let mut svm = LiteSVM::new();
-        svm.add_program(ID, &program).unwrap();
+        // Mainnet features plus sol_big_mod_exp for the withdraw verifier, as in `just it`.
+        let mut feature_set = LiteSVM::mainnet_feature_set();
+        feature_set.activate(&enable_big_mod_exp_syscall::ID, 0);
+        let mut svm = LiteSVM::new().with_feature_set(feature_set).with_builtins();
+        svm.add_program(ZK_SHIELDED_POOL_PROGRAM_ID, &program)
+            .unwrap();
         let payer = Keypair::new();
         svm.airdrop(&payer.pubkey(), 100 * LAMPORTS_PER_SOL)
             .unwrap();
@@ -119,7 +141,10 @@ fn initialize_creates_an_empty_tree() {
 
     let root_registry_account_view = env.fetch_root_registry_account();
     assert_eq!(root_registry_account_view.next_leaf_idx, 0);
-    assert_eq!(root_registry_account_view.root_le, fr_to_le_bytes(create_empty_tree_root()));
+    assert_eq!(
+        root_registry_account_view.root_le,
+        fr_to_le_bytes(create_empty_tree_root())
+    );
     assert!(root_registry_account_view.is_known_root(&root_registry_account_view.root_le));
 }
 
@@ -135,7 +160,8 @@ fn deposit_emits_the_locally_computed_commitment() {
 
     let s = Fr::from(1_234_567_890u64);
     let chunks = [2, 3, 4].map(|sol: u64| sol * LAMPORTS_PER_SOL);
-    let destinations: [Fr; CHUNKS] = array::from_fn(|_| convert_pubkey_32bytes_to_fr(Pubkey::new_unique().to_bytes()));
+    let destinations: [Fr; CHUNKS] =
+        array::from_fn(|_| convert_pubkey_32bytes_to_fr(Pubkey::new_unique().to_bytes()));
     let total: u64 = chunks.iter().sum();
 
     let user_commitment_hash = user_commitment_hash(s, &chunks.map(Fr::from), &destinations);
@@ -143,13 +169,20 @@ fn deposit_emits_the_locally_computed_commitment() {
 
     let vault_balance_before = env.svm.get_balance(&derive_vault_pda()).unwrap_or(0);
 
-    let ix = env.pool.deposit(depositor.pubkey(), fr_to_le_bytes(user_commitment_hash), total);
+    let ix = env.pool.deposit(
+        depositor.pubkey(),
+        fr_to_le_bytes(user_commitment_hash),
+        total,
+    );
     let meta = env.send_ok(&depositor, &[ix]);
 
     let events = parse_deposit_done_events(&meta.logs).unwrap();
     assert_eq!(events.len(), 1, "logs:\n{}", meta.logs.join("\n"));
     let event = &events[0];
-    assert_eq!(event.user_commitment_hash.to_bytes(), fr_to_le_bytes(user_commitment_hash));
+    assert_eq!(
+        event.user_commitment_hash.to_bytes(),
+        fr_to_le_bytes(user_commitment_hash)
+    );
     assert_eq!(event.total_amount, total);
     assert_eq!(
         event.deposit_commitment_hash.to_bytes(),
@@ -158,17 +191,16 @@ fn deposit_emits_the_locally_computed_commitment() {
     );
 
     // Single leaf at index 0: the root is the leaf hashed with each level's zero value.
-    let expected_root =
-        imt_utils::generate_zero_values_for_levels(TREE_DEPTH)
-            .into_iter()
-            .fold(
-                expected_leaf,
-                imt_utils::poseidon_hash,
-            );
-    
+    let expected_root = imt_utils::generate_zero_values_for_levels(TREE_DEPTH)
+        .into_iter()
+        .fold(expected_leaf, imt_utils::poseidon_hash);
+
     let root_registry_account_view = env.fetch_root_registry_account();
     assert_eq!(root_registry_account_view.next_leaf_idx, 1);
-    assert_eq!(root_registry_account_view.root_le, fr_to_le_bytes(expected_root));
+    assert_eq!(
+        root_registry_account_view.root_le,
+        fr_to_le_bytes(expected_root)
+    );
     assert_eq!(
         event.new_root.to_bytes(),
         root_registry_account_view.root_le
@@ -191,12 +223,84 @@ fn deposit_below_minimum_names_the_program_error() {
         &[Fr::from(2u64); CHUNKS],
     );
     let payer = env.payer.insecure_clone();
-    let ix = env.pool.deposit(payer.pubkey(), fr_to_le_bytes(user_commitment_hash), 1);
+    let ix = env
+        .pool
+        .deposit(payer.pubkey(), fr_to_le_bytes(user_commitment_hash), 1);
     let failure = env
         .send(&payer, &[ix])
         .expect_err("1 lamport is below the minimum");
 
-    let described =
-        tx_builder::parse_transaction_error(&failure.err);
+    let described = tx_builder::parse_transaction_error(&failure.err);
     assert!(described.contains("DepositBelowMinimum"), "{described}");
+}
+
+/// Deposit, prove, upload in two parts and withdraw against the program.
+#[test]
+#[ignore = "slow: keygen and proving; needs resources/kzg_bn254_16.srs (scripts/fetch-srs.sh)"]
+fn withdraw_pays_the_proven_chunk() {
+    let Some(mut env) = Env::new() else { return };
+    env.initialize();
+    let payer = env.payer.insecure_clone();
+
+    let fixture_input = build_fixture_input_for_step(0);
+
+    let user_commitment_hash = user_commitment_hash(
+        fixture_input.s,
+        &fixture_input.chunks,
+        &fixture_input.addresses,
+    );
+
+    let deposit_ix = env.pool.deposit(
+        payer.pubkey(),
+        fr_to_le_bytes(user_commitment_hash),
+        FIXTURE_TOTAL_AMOUNT,
+    );
+
+    env.send_ok(&payer, &[deposit_ix]);
+
+    let proving_context = ProvingContext::load(Path::new(SRS_PATH)).unwrap();
+    let generated_proof = proving_context.prove(&fixture_input).unwrap();
+    let proof_hash: [u8; 32] = Keccak256::digest(&generated_proof.proof).into();
+    let proof_final_len = u16::try_from(generated_proof.proof.len()).unwrap();
+    let (proof_part0, proof_part1) = generated_proof.proof.split_at(PROOF_UPLOAD_PART0_LEN);
+
+    for (part, proof_part) in [proof_part0, proof_part1].into_iter().enumerate() {
+        let upload_proof_ix = env.pool.upload_proof(
+            payer.pubkey(),
+            proof_hash,
+            part as u8,
+            proof_final_len,
+            proof_part.to_vec(),
+        );
+
+        env.send_ok(&payer, &[upload_proof_ix]);
+    }
+
+    let [step, chunk_amount, dest_address, nullifier, root] = generated_proof.public_inputs_be;
+    let recipient = Pubkey::new_from_array(FIXTURE_DEST_PUBKEY);
+
+    let withdraw_ix = env.pool.withdraw(
+        payer.pubkey(),
+        recipient,
+        proof_hash,
+        PublicInputs {
+            step,
+            chunk_amount,
+            dest_address,
+            nullifier,
+            root,
+        },
+    );
+
+    let [compute_unit_limit_ix, heap_frame_ix] =
+        compute_budget_ixs(WITHDRAW_CU_LIMIT, WITHDRAW_HEAP_BYTES);
+
+    env.send_ok(&payer, &[compute_unit_limit_ix, heap_frame_ix, withdraw_ix]);
+
+    assert_eq!(env.svm.get_balance(&recipient), Some(FIXTURE_CHUNKS[0]));
+    assert!(
+        env.svm
+            .get_account(&derive_nullifier_pda(&nullifier))
+            .is_some()
+    );
 }

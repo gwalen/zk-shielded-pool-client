@@ -31,6 +31,8 @@ pub struct Config {
     pub withdraw_wallet_keys: Vec<Arc<Keypair>>,
     /// `ZK_DEPOSIT_DATA`: one JSON file per deposit with its zk parameters (secret `s`, chunks, destinations).
     pub zk_deposit_data_dir: PathBuf,
+    /// `SRS_PATH`: KZG params (k=16) the prover loads at startup, fetched by `scripts/fetch-srs.sh`.
+    pub srs_path: PathBuf,
 }
 
 impl Config {
@@ -53,10 +55,10 @@ impl Config {
         let program_id = Pubkey::from_str(program_id_raw.trim())
             .map_err(|_| format_err!("PROGRAM_ID is not a valid public key: {program_id_raw}"))?;
         // Instructions go to the IDL address. A different PROGRAM_ID would only mislead.
-        if program_id != program_helpers::ID {
+        if program_id != program_helpers::ZK_SHIELDED_POOL_PROGRAM_ID {
             return Err(format_err!(
                 "PROGRAM_ID {program_id} differs from the IDL address {}; run scripts/sync-idl.sh",
-                program_helpers::ID
+                program_helpers::ZK_SHIELDED_POOL_PROGRAM_ID
             ));
         }
 
@@ -70,6 +72,8 @@ impl Config {
             .unwrap_or_else(|| DEFAULT_ZK_DEPOSIT_DATA_DIR.into())
             .into();
 
+        let srs_path = Self::required(&get, "SRS_PATH")?.into();
+
         Ok(Self {
             version,
             solana_rpc_url,
@@ -78,6 +82,7 @@ impl Config {
             deposit_wallet_keys,
             withdraw_wallet_keys,
             zk_deposit_data_dir,
+            srs_path,
         })
     }
 
@@ -110,6 +115,7 @@ impl fmt::Debug for Config {
                 &Redacted(self.withdraw_wallet_keys.len()),
             )
             .field("zk_deposit_data_dir", &self.zk_deposit_data_dir)
+            .field("srs_path", &self.srs_path)
             .finish()
     }
 }
@@ -193,6 +199,7 @@ mod tests {
             ("SOLANA_RPC_URL", "http://127.0.0.1:8899".to_string()),
             (DEPOSIT_KEYS_VAR, deposit.to_string()),
             (WITHDRAW_KEYS_VAR, withdraw.to_string()),
+            ("SRS_PATH", "resources/kzg_bn254_16.srs".to_string()),
         ])
     }
 

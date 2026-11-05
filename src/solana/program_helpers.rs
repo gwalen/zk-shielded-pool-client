@@ -13,8 +13,12 @@ use solana_pubkey::Pubkey;
 declare_program!(zk_shielded_pool_solana);
 
 pub use zk_shielded_pool_solana::{
-    ID, ProgramConfig, ProofStorage, PublicInputs, RootRegistry, accounts, events, instruction,
+    Nullifier, ProgramConfig, ProofStorage, PublicInputs, RootRegistry, accounts,
+    error::ZkShieldedPoolSolanaError, events, instruction,
 };
+
+/// Address of the zk-shielded-pool program, from the IDL.
+pub const ZK_SHIELDED_POOL_PROGRAM_ID: Pubkey = zk_shielded_pool_solana::ID;
 
 /// The IDL the module above is generated from. Also the source of `program_error_name`.
 const IDL_JSON: &str = include_str!("../../idls/zk_shielded_pool_solana.json");
@@ -32,7 +36,7 @@ pub const PROOF_UPLOAD_PART0_LEN: usize = 800;
 pub const WITHDRAW_CU_LIMIT: u32 = 1_400_000;
 pub const WITHDRAW_HEAP_BYTES: u32 = 65_536;
 
-/// Generate a map of program error codes to their names, from the IDL `errors` array. 
+/// Generate a map of program error codes to their names, from the IDL `errors` array.
 /// Global and built once, on first use. Thread safe.
 static PROGRAM_ERROR_CODES_TO_NAMES: LazyLock<HashMap<u32, String>> = LazyLock::new(|| {
     let idl: serde_json::Value = serde_json::from_str(IDL_JSON).expect("bundled IDL is valid JSON");
@@ -70,7 +74,7 @@ pub fn derive_nullifier_pda(nullifier_be: &[u8; 32]) -> Pubkey {
 }
 
 fn find_pda(seeds: &[&[u8]]) -> Pubkey {
-    Pubkey::find_program_address(seeds, &ID).0
+    Pubkey::find_program_address(seeds, &ZK_SHIELDED_POOL_PROGRAM_ID).0
 }
 
 /// Name of a program error code (`6000 + index` in the IDL `errors` array), e.g. `6009 -> UnknownRoot`.
@@ -88,7 +92,10 @@ mod tests {
 
     #[test]
     fn idl_address_matches_default_program_id() {
-        assert_eq!(ID, DEFAULT_PROGRAM_ID.parse::<Pubkey>().unwrap());
+        assert_eq!(
+            ZK_SHIELDED_POOL_PROGRAM_ID,
+            DEFAULT_PROGRAM_ID.parse::<Pubkey>().unwrap()
+        );
     }
 
     #[test]
@@ -105,12 +112,14 @@ mod tests {
 
     #[test]
     fn pdas_use_the_program_seeds() {
-        let (expected, _) = Pubkey::find_program_address(&[b"vault"], &ID);
+        let (expected, _) = Pubkey::find_program_address(&[b"vault"], &ZK_SHIELDED_POOL_PROGRAM_ID);
         assert_eq!(derive_vault_pda(), expected);
         let sender = Pubkey::new_unique();
         let hash = [7u8; 32];
-        let (expected, _) =
-            Pubkey::find_program_address(&[b"proof_storage", sender.as_ref(), &hash], &ID);
+        let (expected, _) = Pubkey::find_program_address(
+            &[b"proof_storage", sender.as_ref(), &hash],
+            &ZK_SHIELDED_POOL_PROGRAM_ID,
+        );
         assert_eq!(derive_proof_pda(&sender, &hash), expected);
     }
 }

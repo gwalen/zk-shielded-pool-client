@@ -69,6 +69,61 @@ impl ZkDepositData {
             AppError::Internal(format_err!("zk deposit data {}: invalid secret_s", self.id))
         })
     }
+
+    /// Funded chunks still to withdraw on a confirmed deposit.
+    pub fn open_chunk_count(&self) -> u64 {
+        if self.status == ZkDepositStatus::Confirmed {
+            return self.count_chunks_awaiting_withdrawal();
+        }
+        0
+    }
+
+    /// Funded chunks on a pending deposit.
+    pub fn pending_chunk_count(&self) -> u64 {
+        if self.status == ZkDepositStatus::Pending {
+            return self.count_chunks_awaiting_withdrawal();
+        }
+        0
+    }
+
+    /// Funded chunks whose withdrawal slot is empty.
+    fn count_chunks_awaiting_withdrawal(&self) -> u64 {
+        let mut awaiting_withdrawal_chunk_count = 0u64;
+
+        for (chunk_lamports, withdrawal_record) in self.chunks.iter().zip(self.withdrawals.iter()) {
+            if *chunk_lamports != 0 && withdrawal_record.is_none() {
+                awaiting_withdrawal_chunk_count += 1;
+            }
+        }
+
+        awaiting_withdrawal_chunk_count
+    }
+
+    /// Chunks that have a withdrawal record.
+    pub fn withdrawn_chunk_count(&self) -> u64 {
+        let mut withdrawn_chunk_count = 0u64;
+
+        for withdrawal_record in &self.withdrawals {
+            if withdrawal_record.is_some() {
+                withdrawn_chunk_count += 1;
+            }
+        }
+
+        withdrawn_chunk_count
+    }
+
+    /// This confirmed deposit still has a funded chunk to withdraw.
+    pub fn is_open(&self) -> bool {
+        self.open_chunk_count() > 0
+    }
+
+    /// Confirmed, with a withdrawal stored for every funded chunk.
+    pub fn is_fully_withdrawn(&self) -> bool {
+        if self.status != ZkDepositStatus::Confirmed {
+            return false;
+        }
+        self.open_chunk_count() == 0 && self.withdrawn_chunk_count() > 0
+    }
 }
 
 /// Same fields as the derive, but `secret_s` is redacted.
@@ -137,6 +192,24 @@ impl ZkDepositDataWriter {
         read(&self.path(id)?, id).await
     }
 
+    /// Every `{deposit id}.json` file in the store.
+    pub async fn fetch_all(&self) -> RequestResult<Vec<ZkDepositData>> {
+        let mut read_dir = fs::read_dir(&self.dir).await.map_err(create_io_error)?;
+        let mut zk_deposit_data_list = Vec::new();
+
+        while let Some(dir_entry) = read_dir.next_entry().await.map_err(create_io_error)? {
+            let path = dir_entry.path();
+
+            let Some(id) = parse_zk_deposit_file_id(&path) else {
+                continue;
+            };
+
+            zk_deposit_data_list.push(read(&path, &id).await?);
+        }
+
+        Ok(zk_deposit_data_list)
+    }
+
     /// Read, change and write back one zk deposit data file under the store lock. Returns the new value.
     pub async fn update(
         &self,
@@ -164,11 +237,7 @@ impl ZkDepositDataWriter {
     /// Ids are lowercase hex only, as `create_id` writes them, so a request can never point
     /// outside `dir` and each deposit has exactly one id.
     fn path(&self, id: &str) -> RequestResult<PathBuf> {
-        let is_lowercase_hex = id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-
-        if id.len() != 64 || !is_lowercase_hex {
+        if !is_zk_deposit_id(id) {
             return Err(AppError::BadRequest(
                 "deposit id must be 64 lowercase hex characters".into(),
             ));
@@ -202,6 +271,28 @@ impl ZkDepositDataWriter {
         drop(file); // drop the file handle
 
         fs::rename(&tmp, path).await.map_err(create_io_error)
+    }
+}
+
+fn is_zk_deposit_id(id: &str) -> bool {
+    let is_lowercase_hex = id
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+
+    id.len() == 64 && is_lowercase_hex
+}
+
+/// Deposit id of a `{id}.json` file.
+fn parse_zk_deposit_file_id(path: &Path) -> Option<String> {
+    if path.extension()? != "json" {
+        return None;
+    }
+
+    let id = path.file_stem()?.to_str()?;
+    if is_zk_deposit_id(id) {
+        Some(id.to_string())
+    } else {
+        None
     }
 }
 
@@ -295,6 +386,106 @@ mod tests {
             store.get(&uppercase_id).await,
             Err(AppError::BadRequest(_))
         ));
+    }
+
+    /// Open and withdrawn counts require a confirmed deposit.
+    #[test]
+    fn open_and_withdrawn_follow_the_withdrawal_records() {
+        let mut zk_deposit_data = create_sample_deposit(1);
+        assert_eq!(zk_deposit_data.status, ZkDepositStatus::Pending);
+        assert_eq!(zk_deposit_data.open_chunk_count(), 0);
+        assert_eq!(zk_deposit_data.pending_chunk_count(), 3);
+        assert!(!zk_deposit_data.is_open());
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+
+        zk_deposit_data.status = ZkDepositStatus::Failed;
+        assert_eq!(zk_deposit_data.open_chunk_count(), 0);
+        assert_eq!(zk_deposit_data.pending_chunk_count(), 0);
+        assert!(!zk_deposit_data.is_open());
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+
+        zk_deposit_data.status = ZkDepositStatus::Confirmed;
+        assert_eq!(zk_deposit_data.open_chunk_count(), 3);
+        assert_eq!(zk_deposit_data.pending_chunk_count(), 0);
+        assert_eq!(zk_deposit_data.withdrawn_chunk_count(), 0);
+        assert!(zk_deposit_data.is_open());
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+
+        zk_deposit_data.chunks = [2, 0, 4];
+        assert_eq!(zk_deposit_data.open_chunk_count(), 2);
+        assert_eq!(zk_deposit_data.withdrawn_chunk_count(), 0);
+
+        zk_deposit_data.withdrawals[0] = Some(WithdrawalRecord {
+            tx: Some("sig".into()),
+            nullifier_hex: hex::encode([9u8; 32]),
+            at: Utc::now(),
+        });
+        assert_eq!(zk_deposit_data.open_chunk_count(), 1);
+        assert_eq!(zk_deposit_data.withdrawn_chunk_count(), 1);
+        assert!(zk_deposit_data.is_open());
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+
+        // Withdrawal recorded after the nullifier was already spent on chain.
+        zk_deposit_data.withdrawals[2] = Some(WithdrawalRecord {
+            tx: None,
+            nullifier_hex: hex::encode([8u8; 32]),
+            at: Utc::now(),
+        });
+        assert_eq!(zk_deposit_data.open_chunk_count(), 0);
+        assert_eq!(zk_deposit_data.withdrawn_chunk_count(), 2);
+        assert!(!zk_deposit_data.is_open());
+        assert!(zk_deposit_data.is_fully_withdrawn());
+
+        zk_deposit_data.status = ZkDepositStatus::Failed;
+        assert_eq!(zk_deposit_data.open_chunk_count(), 0);
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+
+        zk_deposit_data.status = ZkDepositStatus::Confirmed;
+        zk_deposit_data.chunks = [0, 0, 0];
+        zk_deposit_data.withdrawals = [None, None, None];
+        assert_eq!(zk_deposit_data.open_chunk_count(), 0);
+        assert_eq!(zk_deposit_data.withdrawn_chunk_count(), 0);
+        assert!(!zk_deposit_data.is_open());
+        assert!(!zk_deposit_data.is_fully_withdrawn());
+    }
+
+    #[tokio::test]
+    async fn fetch_all_reads_deposit_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ZkDepositDataWriter::new(dir.path()).unwrap();
+        let first = create_sample_deposit(0x11);
+        let second = create_sample_deposit(0x22);
+        store.create(&first).await.unwrap();
+        store.create(&second).await.unwrap();
+
+        let temp_path = dir.path().join(format!("{}.json.tmp", first.id));
+        std::fs::write(&temp_path, b"{}").unwrap();
+        std::fs::write(dir.path().join("notes.json"), b"{}").unwrap();
+
+        let mut ids: Vec<_> = store
+            .fetch_all()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|zk_deposit_data| zk_deposit_data.id)
+            .collect();
+        ids.sort();
+
+        let mut expected = vec![first.id, second.id];
+        expected.sort();
+        assert_eq!(ids, expected);
+    }
+
+    #[tokio::test]
+    async fn fetch_all_rejects_a_corrupt_deposit_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ZkDepositDataWriter::new(dir.path()).unwrap();
+        let corrupt_id = hex::encode([0x33; 32]);
+        let corrupt_path = dir.path().join(format!("{corrupt_id}.json"));
+        std::fs::write(&corrupt_path, b"not-json").unwrap();
+
+        let err = store.fetch_all().await.unwrap_err();
+        assert!(err.to_string().contains("corrupt"), "{err}");
     }
 
     #[test]

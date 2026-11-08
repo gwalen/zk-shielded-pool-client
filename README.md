@@ -95,3 +95,11 @@ curl -i -X POST localhost:3000/withdraw \
   The response holds `withdraw_tx`, `upload_txs` (proof part 0 and 1), `close_proof_tx` (`null` if closing the proof
   account failed), `recipient`, `amount` (lamports) and `nullifier` (hex BE). The tree is rebuilt from the program's
   whole tx history on every withdraw, which suits a surfnet or devnet-sized history only.
+
+- /stats: counts from the stored zk deposit data, plus the configured wallet public keys, in config order.
+  An open chunk is a funded chunk on a confirmed deposit with an empty withdrawal slot. A withdrawn chunk stores a
+  withdrawal record. Pending deposits, and their funded chunks, are reported in the pending counts. A failed deposit
+  stays out of the open and pending counts: its chunks remain stored, and the funds never entered the pool.
+```
+curl -i localhost:3000/stats
+```

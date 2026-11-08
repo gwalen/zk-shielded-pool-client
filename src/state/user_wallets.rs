@@ -101,7 +101,10 @@ mod tests {
         };
         assert_eq!(deposit_wallets.default().pubkey(), first);
         assert_eq!(
-            deposit_wallets.parse_and_get(&second.to_string()).unwrap().pubkey(),
+            deposit_wallets
+                .parse_and_get(&second.to_string())
+                .unwrap()
+                .pubkey(),
             second
         );
     }
@@ -112,7 +115,10 @@ mod tests {
         let deposit_wallets = create_user_wallets(WalletKind::Deposit, 1);
         let withdraw_wallets = create_user_wallets(WalletKind::Withdraw, 1);
 
-        for (user_wallets, other_user_wallets) in [(&deposit_wallets, &withdraw_wallets), (&withdraw_wallets, &deposit_wallets)] {
+        for (user_wallets, other_user_wallets) in [
+            (&deposit_wallets, &withdraw_wallets),
+            (&withdraw_wallets, &deposit_wallets),
+        ] {
             let err = user_wallets
                 .parse_and_get(&other_user_wallets.default().pubkey().to_string())
                 .unwrap_err();

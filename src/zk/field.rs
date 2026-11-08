@@ -44,11 +44,14 @@ mod tests {
     use shielded_pool_circuit::transcript::fr_to_be;
     use solana_pubkey::Pubkey;
 
-    const FIXTURE_PUBLIC_INPUTS: &[u8; 160] = include_bytes!("../../tests/fixtures/step0/public_inputs.bin");
+    const FIXTURE_PUBLIC_INPUTS: &[u8; 160] =
+        include_bytes!("../../tests/fixtures/step0/public_inputs.bin");
     const DESTINATION: &str = "dstH17g8RBGdUo3YeYhSFHDdFzHrWkAzNCKSveAchyD";
 
     fn fixture_public_input(index: usize) -> [u8; 32] {
-        FIXTURE_PUBLIC_INPUTS[index * 32..(index + 1) * 32].try_into().unwrap()
+        FIXTURE_PUBLIC_INPUTS[index * 32..(index + 1) * 32]
+            .try_into()
+            .unwrap()
     }
 
     /// Reference vector from the program's `dest_address_hash.rs` test.
@@ -60,7 +63,11 @@ mod tests {
             hex::encode(fr_to_le_bytes(destination_fr)),
             "c2332be1ab10bbdb95a6794fd868716df5c6a979b237b4f7d395f5e568f7fe2e"
         );
-        assert_eq!(fr_to_be(&destination_fr), fixture_public_input(2), "dest_address public input is BE");
+        assert_eq!(
+            fr_to_be(&destination_fr),
+            fixture_public_input(2),
+            "dest_address public input is BE"
+        );
     }
 
     /// The fixture deposit as the only leaf of a depth-20 tree gives the fixture root.

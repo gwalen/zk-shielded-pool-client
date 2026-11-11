@@ -1,5 +1,9 @@
 # Client for zk-shielded-pool contracts
 
+Contains the client code for ZK-shielded-pool. It is a Rust backend server app for interacting with the Solana program: sending deposit/withdrawal transactions and building proofs for the verifier. For educational purposes, it must be run locally with a private key set in an environment variable. In future versions, this will be replaced by a web app with WASM code.
+
+This is the client for the broader [zk-shielded-pool](https://github.com/gwalen/zk-shielded-pool) project.
+
 ## Setup
 
 - Copy `.env.example` to `.env` and fill in the wallet keys.
